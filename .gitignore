@@ -1,0 +1,2 @@
+# Playwright MCP writes page snapshots here at runtime
+.playwright-mcp/
