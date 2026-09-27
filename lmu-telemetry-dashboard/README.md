@@ -338,7 +338,8 @@ rival gaps and pace), then give those to Claude. Claude does the engineering
 judgment and never has to do the arithmetic. Answers come back as JSON that
 matches a fixed schema.
 
-Run the tests with `npm test`.
+Run the tests with `npm test`. For a step-by-step test plan, from the
+simulator to the real game, see [TESTING.md](TESTING.md).
 
 ### Timing
 
