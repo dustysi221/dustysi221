@@ -1,0 +1,23 @@
+{
+  "name": "lmu-telemetry-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Live Le Mans Ultimate telemetry server with Claude-powered tire analysis",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "mock": "node server.js --mock",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "koffi": "^3.3.1",
+    "ws": "^8.22.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,313 @@
+'use strict';
+
+/**
+ * LMU telemetry server
+ *
+ *  - reads Le Mans Ultimate telemetry from rFactor2SharedMemoryMapPlugin64.dll
+ *    shared memory (Windows) or a built-in simulator (TELEMETRY_SOURCE=mock)
+ *  - broadcasts snapshots to dashboards over ws://HOST:PORT/telemetry at 10 Hz
+ *  - samples tire history at 1 Hz
+ *  - asks Claude for a tire analysis every ANALYSIS_INTERVAL_MS and broadcasts it
+ */
+
+require('dotenv').config({ quiet: true });
+
+const http = require('http');
+const path = require('path');
+const express = require('express');
+const { WebSocketServer, WebSocket } = require('ws');
+
+const { parseSnapshot } = require('./src/telemetryParser');
+const { TireHistory } = require('./src/tireHistory');
+const { ClaudeAnalyzer } = require('./src/claudeAnalyzer');
+
+const config = {
+  host: process.env.HOST || '127.0.0.1',
+  port: intEnv('PORT', 3000),
+  source: process.argv.includes('--mock') ? 'mock' : (process.env.TELEMETRY_SOURCE || 'auto').toLowerCase(),
+  mockSpeed: Number(process.env.MOCK_SPEED) || 1,
+  broadcastHz: intEnv('BROADCAST_HZ', 10),
+  tireSampleMs: intEnv('TIRE_SAMPLE_MS', 1000),
+  analysisIntervalMs: intEnv('ANALYSIS_INTERVAL_MS', 5000),
+  apiKey: process.env.CLAUDE_API_KEY || process.env.ANTHROPIC_API_KEY || '',
+  model: process.env.ANALYSIS_MODEL || 'claude-opus-5',
+  effort: process.env.ANALYSIS_EFFORT || 'low',
+  fallbacks: (process.env.ANALYSIS_FALLBACKS || 'true') !== 'false',
+};
+
+const RECONNECT_MS = 2000;
+const STALE_MS = 2000; // no new frame for this long -> game paused / in menus
+const REOPEN_AFTER_STALE_MS = 10_000; // release the mapping so a restarted game gets a fresh one
+const HEARTBEAT_MS = 15_000;
+const MAX_BUFFERED_BYTES = 1 << 20;
+
+const log = {
+  info: (...a) => console.log(new Date().toISOString(), ...a),
+  warn: (...a) => console.warn(new Date().toISOString(), ...a),
+  error: (...a) => console.error(new Date().toISOString(), ...a),
+};
+
+// --- telemetry source -------------------------------------------------------
+
+function createSource() {
+  const useMock = config.source === 'mock' || (config.source === 'auto' && process.platform !== 'win32');
+  if (useMock) {
+    const { MockSource } = require('./src/mockSource');
+    return { kind: 'mock', reader: new MockSource({ speedMultiplier: config.mockSpeed }) };
+  }
+  const { SharedMemoryReader } = require('./src/sharedMemory');
+  return { kind: 'rf2', reader: new SharedMemoryReader() };
+}
+
+const source = createSource();
+const history = new TireHistory();
+const analyzer = new ClaudeAnalyzer({
+  apiKey: config.apiKey,
+  model: config.model,
+  effort: config.effort,
+  useFallbacks: config.fallbacks,
+  logger: log,
+});
+
+const state = {
+  connected: false,
+  live: false,
+  message: 'Starting',
+  snapshot: null,
+  analysis: null,
+  analysisError: null,
+  lastVersion: null,
+  lastFrameAt: 0,
+  lastOpenAttempt: 0,
+};
+
+function setStatus(connected, live, message) {
+  if (state.connected === connected && state.live === live && state.message === message) return;
+  state.connected = connected;
+  state.live = live;
+  state.message = message;
+  log.info(`[telemetry] ${message}`);
+  broadcast({ type: 'status', data: statusPayload() });
+}
+
+function statusPayload() {
+  return {
+    source: source.kind,
+    connected: state.connected,
+    live: state.live,
+    message: state.message,
+    clients: wss ? wss.clients.size : 0,
+    ai: {
+      enabled: analyzer.enabled,
+      model: config.model,
+      effort: config.effort,
+      intervalMs: config.analysisIntervalMs,
+      totals: analyzer.totals,
+      lastError: state.analysisError,
+    },
+  };
+}
+
+function pollTelemetry() {
+  const now = Date.now();
+  const { reader } = source;
+
+  if (!reader.isOpen) {
+    if (now - state.lastOpenAttempt < RECONNECT_MS) return;
+    state.lastOpenAttempt = now;
+    try {
+      reader.open();
+      state.lastFrameAt = now;
+      state.lastVersion = null;
+      setStatus(true, false, 'Shared memory opened, waiting for data');
+    } catch (err) {
+      setStatus(false, false, 'Waiting for LMU (is the game running with the rF2 shared memory plugin enabled?)');
+      return;
+    }
+  }
+
+  let raw;
+  try {
+    raw = reader.read();
+  } catch (err) {
+    log.error('[telemetry] read failed:', err.message);
+    reader.close();
+    setStatus(false, false, `Read failed: ${err.message}`);
+    return;
+  }
+  if (!raw) return; // plugin mid-write; try again next tick
+
+  if (raw.telemetryVersion !== state.lastVersion) {
+    state.lastVersion = raw.telemetryVersion;
+    state.lastFrameAt = now;
+  }
+  const sinceFrame = now - state.lastFrameAt;
+  if (sinceFrame > REOPEN_AFTER_STALE_MS && source.kind === 'rf2') {
+    reader.close();
+    setStatus(false, false, 'No telemetry updates; reconnecting');
+    return;
+  }
+
+  let snapshot;
+  try {
+    snapshot = parseSnapshot(raw);
+  } catch (err) {
+    log.error('[telemetry] parse failed:', err.message);
+    return;
+  }
+  if (!snapshot) {
+    setStatus(true, false, 'Connected, no player car on track');
+    return;
+  }
+
+  const live = sinceFrame < STALE_MS;
+  setStatus(true, live, live ? 'Live' : 'Connected, telemetry paused');
+
+  state.snapshot = { ...snapshot, timestamp: now, live, source: source.kind };
+  broadcast({ type: 'telemetry', data: state.snapshot });
+}
+
+function sampleTires() {
+  if (state.live && state.snapshot) history.record(state.snapshot);
+}
+
+async function runAnalysis({ force = false } = {}) {
+  if (!analyzer.enabled || !state.snapshot) return;
+  if (!force && (!state.live || wss.clients.size === 0)) return;
+
+  try {
+    const analysis = await analyzer.analyze({ snapshot: state.snapshot, history: history.summary() });
+    if (!analysis) return; // previous request still running
+    state.analysis = analysis;
+    state.analysisError = null;
+    broadcast({ type: 'analysis', data: analysis });
+  } catch (err) {
+    const message = describeError(err);
+    state.analysisError = message;
+    log.warn('[claude]', message);
+    broadcast({ type: 'analysis_error', data: { message, at: new Date().toISOString() } });
+  }
+}
+
+function describeError(err) {
+  const Anthropic = require('@anthropic-ai/sdk');
+  if (err instanceof Anthropic.AuthenticationError) return 'Invalid Claude API key (check CLAUDE_API_KEY in .env)';
+  if (err instanceof Anthropic.RateLimitError) return 'Claude API rate limit hit; will retry next interval';
+  if (err instanceof Anthropic.APIConnectionError) return 'Could not reach the Claude API (network)';
+  if (err instanceof Anthropic.APIError) return `Claude API error ${err.status}: ${err.message}`;
+  return err.message;
+}
+
+// --- HTTP + WebSocket -------------------------------------------------------
+
+const app = express();
+app.use(express.static(path.join(__dirname, 'public')));
+
+app.get('/api/health', (_req, res) => res.json(statusPayload()));
+app.get('/api/snapshot', (_req, res) => res.json(state.snapshot));
+app.get('/api/analysis', (_req, res) => res.json(state.analysis));
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server, path: '/telemetry' });
+
+function send(ws, message) {
+  if (ws.readyState !== WebSocket.OPEN) return;
+  // Drop frames for a client that can't keep up instead of queueing forever
+  if (ws.bufferedAmount > MAX_BUFFERED_BYTES && message.type === 'telemetry') return;
+  ws.send(JSON.stringify(message));
+}
+
+function broadcast(message) {
+  if (!wss) return;
+  const data = JSON.stringify(message);
+  for (const ws of wss.clients) {
+    if (ws.readyState !== WebSocket.OPEN) continue;
+    if (ws.bufferedAmount > MAX_BUFFERED_BYTES && message.type === 'telemetry') continue;
+    ws.send(data);
+  }
+}
+
+wss.on('connection', (ws, req) => {
+  ws.isAlive = true;
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+  log.info(`[ws] client connected from ${req.socket.remoteAddress} (${wss.clients.size} total)`);
+
+  send(ws, { type: 'hello', data: statusPayload() });
+  if (state.snapshot) send(ws, { type: 'telemetry', data: state.snapshot });
+  if (state.analysis) send(ws, { type: 'analysis', data: state.analysis });
+
+  ws.on('message', (raw) => {
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+    if (msg.type === 'ping') send(ws, { type: 'pong', data: { at: Date.now() } });
+    if (msg.type === 'requestAnalysis') runAnalysis({ force: true });
+  });
+
+  ws.on('close', () => log.info(`[ws] client disconnected (${wss.clients.size} total)`));
+  ws.on('error', (err) => log.warn('[ws] client error:', err.message));
+});
+
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!ws.isAlive) {
+      ws.terminate();
+      continue;
+    }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, HEARTBEAT_MS);
+
+// --- start ------------------------------------------------------------------
+
+const timers = [];
+
+server.listen(config.port, config.host, () => {
+  log.info(`LMU telemetry server on http://${config.host}:${config.port}`);
+  log.info(`WebSocket: ws://${config.host}:${config.port}/telemetry`);
+  log.info(`Telemetry source: ${source.kind}${source.kind === 'mock' ? ` (x${config.mockSpeed} speed)` : ''}`);
+  if (analyzer.enabled) {
+    log.info(
+      `Claude analysis: ${config.model} (effort ${config.effort}) every ${config.analysisIntervalMs / 1000}s while a dashboard is connected`,
+    );
+  } else {
+    log.warn('Claude analysis disabled: set CLAUDE_API_KEY in .env to enable it');
+  }
+
+  timers.push(setInterval(pollTelemetry, Math.round(1000 / config.broadcastHz)));
+  timers.push(setInterval(sampleTires, config.tireSampleMs));
+  if (analyzer.enabled) timers.push(setInterval(runAnalysis, config.analysisIntervalMs));
+  pollTelemetry();
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    log.error(`Port ${config.port} is already in use. Set PORT in .env or stop the other process.`);
+  } else {
+    log.error('Server error:', err);
+  }
+  process.exit(1);
+});
+
+function shutdown() {
+  log.info('Shutting down');
+  timers.forEach(clearInterval);
+  clearInterval(heartbeat);
+  source.reader.close();
+  for (const ws of wss.clients) ws.close(1001, 'Server shutting down');
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 2000).unref();
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
+function intEnv(name, fallback) {
+  const n = parseInt(process.env[name], 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
