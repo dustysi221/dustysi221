@@ -37,7 +37,7 @@
     color: var(--text);
     font: 14px/1.4 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr) clamp(200px, 34vh, 400px);
+    grid-template-rows: auto minmax(0, 1fr) clamp(200px, 38vh, 440px);
     gap: 10px;
     padding: 10px;
     height: 100dvh;
@@ -178,7 +178,7 @@
   .fuel-sub b { color: var(--text); font-weight: 600; }
 
   /* ---------- AI panel ---------- */
-  .ai { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); min-height: 0; }
+  .ai { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-height: 0; }
   .ai-latest { padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; min-height: 0; border-right: 1px solid var(--line); overflow: auto; }
   .ai-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .ai-title { font-weight: 600; letter-spacing: .08em; font-size: 12px; text-transform: uppercase; color: var(--muted); flex: 1; }
@@ -195,6 +195,16 @@
   .fact.urgent { border-color: var(--critical); }
   .fact.urgent b { color: var(--critical); }
   .bubble .facts { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .call {
+    font-size: clamp(18px, 1.6vw, 24px); font-weight: 700; line-height: 1.25;
+    border-left: 3px solid var(--accent); padding-left: 10px;
+  }
+  .strat .fact b { font-size: 13px; font-weight: 500; line-height: 1.35; }
+  .strat { gap: 8px; }
+  .plan { font-size: 14px; line-height: 1.4; }
+  .plan.muted { color: var(--muted); font-size: 13px; }
+  .status.conf-high { color: var(--good); } .status.conf-medium { color: var(--watch); } .status.conf-low { color: var(--muted); }
+  .msg.strategy .avatar { border-color: var(--accent); color: var(--accent); }
   .bubble .facts b { color: var(--text); font-weight: 600; }
   .recs { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
   .recs li {
@@ -251,7 +261,10 @@
     .metric { padding: 8px 14px; }
     .metric.extra { display: none; }
     .ai-latest { padding: 10px 14px; gap: 7px; }
-    .ai-temp { display: none; }
+    .ai-temp, .strat .rivals { display: none; }
+    .ai-summary { font-size: 15px; }
+    .call { font-size: 17px; }
+    .ai-top .ai-title { font-size: 11px; }
   }
 
   /* ---------- narrow screens: stack and scroll ---------- */
@@ -265,7 +278,7 @@
     .car { grid-template-columns: 1fr 1fr; grid-template-rows: auto auto auto; }
     .chassis { display: none; }
     .ai { grid-template-columns: 1fr; }
-    .ai-latest { border-right: 0; border-bottom: 1px solid var(--line); }
+    .ai-latest { border-right: 0; border-bottom: 1px solid var(--line); overflow: visible; }
     .feed { max-height: 50vh; }
   }
 </style>
@@ -380,6 +393,27 @@
     <div class="ai-meta">
       <span>Updated <b id="aiAge">—</b></span>
       <span id="aiModel"></span>
+    </div>
+  </div>
+  <div class="ai-latest strat">
+    <div class="ai-top">
+      <span class="ai-title">Strategist · latest</span>
+      <span class="status" id="stConf">NO DATA</span>
+      <button id="strategyBtn" disabled>Update</button>
+    </div>
+    <div class="call" id="stCall">Waiting for the first completed lap…</div>
+    <div class="plan" id="stPit"></div>
+    <div class="ai-facts">
+      <div class="fact"><span class="label">Fuel</span><b id="stFuel">—</b></div>
+      <div class="fact"><span class="label">Tires</span><b id="stTires">—</b></div>
+    </div>
+    <div class="label">Plan</div>
+    <div class="plan" id="stPlan">—</div>
+    <div class="label rivals">Rivals</div>
+    <div class="plan muted rivals" id="stRivals">—</div>
+    <div class="ai-meta">
+      <span>Next stop <b id="stService">—</b></span>
+      <span>Updated <b id="stAge">—</b></span>
     </div>
   </div>
   <div class="feed-wrap">
@@ -522,7 +556,9 @@
     $('track').textContent = s.trackName || '—';
     $('sessionType').textContent = [s.type, s.phase].filter(Boolean).join(' · ');
     $('lap').textContent = v.lap ?? '—';
-    $('pos').textContent = v.position ? `P${v.position}` : '—';
+    $('pos').textContent = v.position
+      ? `P${v.position}${v.classPosition && v.classPosition !== v.position ? ` · P${v.classPosition} ${v.class || 'class'}` : ''}`
+      : '—';
     $('trackTemp').textContent = s.trackTempC != null ? `${fmt(s.trackTempC)}°C` : '—';
     $('airTemp').textContent = s.ambientTempC != null ? `${fmt(s.ambientTempC)}°C` : '—';
 
@@ -615,6 +651,7 @@
       ? `Claude ${ai.model} · effort ${ai.effort} · every ${Math.round(ai.intervalMs / 1000)}s`
       : 'Set CLAUDE_API_KEY in .env and restart the server to enable Claude analysis';
     $('analyzeBtn').disabled = !ai.enabled || !socketOpen;
+    $('strategyBtn').disabled = !ai.enabled || !socketOpen;
     if (ai.totals) updateCost(ai.totals);
     if (!ai.enabled && !feedHasContent) {
       $('feedEmpty').textContent = 'Claude analysis is off. Add CLAUDE_API_KEY to .env and restart the server.';
@@ -629,8 +666,7 @@
   // ---------- AI analysis ----------
   let lastAnalysis = null;
   let feedHasContent = false;
-  let lastFeedKey = null;
-  let lastFeedMsg = null;
+  const lastFeed = {}; // per source (tire / strategy / errors): { key, msg }
 
   function onTireAnalysis(a) {
     lastAnalysis = a;
@@ -668,15 +704,46 @@
     });
   }
 
+  let lastStrategy = null;
+  function onStrategy(st) {
+    lastStrategy = st;
+    const conf = st.confidence || 'low';
+    const confEl = $('stConf');
+    confEl.textContent = `${conf.toUpperCase()} CONFIDENCE`;
+    confEl.className = 'status conf-' + conf;
+    $('stCall').textContent = st.call || st.pit_recommendation;
+    $('stPit').textContent = st.call ? st.pit_recommendation : '';
+    $('stFuel').textContent = st.fuel_status || '—';
+    $('stTires').textContent = st.tire_trend || '—';
+    $('stPlan').textContent = st.strategy || '—';
+    $('stRivals').textContent = st.competitor_analysis || '—';
+    $('stService').textContent = st.service || '—';
+    updateAge();
+    updateCost(st.totals);
+
+    addFeed({
+      key: `st|${st.call}|${st.pit_recommendation}`,
+      cls: 'strategy',
+      avatar: 'ST',
+      meta: [timeOfDay(st.createdAt), st.lap != null ? `Lap ${st.lap}` : '', `${conf} confidence`].filter(Boolean).join(' · '),
+      html: `<b>${esc(st.call || st.pit_recommendation)}</b>
+        <div class="facts">${esc(st.pit_recommendation)}</div>
+        <div class="facts">Fuel <b>${esc(st.fuel_status)}</b></div>
+        <div class="facts">Plan <b>${esc(st.strategy)}</b></div>`,
+    });
+  }
+
   function onAnalysisError(e) {
-    addFeed({ key: 'err|' + e.message, cls: 'system', avatar: '!', meta: timeOfDay(e.at), html: esc(e.message) });
+    const who = e.source === 'strategy' ? 'Strategy' : e.source === 'tire' ? 'Tire analysis' : 'Claude';
+    addFeed({ key: 'err|' + e.message, cls: 'system', avatar: '!', meta: timeOfDay(e.at), html: `${who}: ${esc(e.message)}` });
     $('aiPill').dataset.state = 'paused';
   }
 
   const timeOfDay = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
 
-  // Chat feed. Identical consecutive verdicts collapse into one bubble with a
-  // counter, so a steady stint doesn't flood the feed every 5 seconds.
+  // Chat feed. A verdict identical to the previous one from the same source
+  // collapses into that bubble with a counter (and moves it to the bottom), so a
+  // steady stint doesn't flood the feed every 5 seconds.
   function addFeed({ key, cls, avatar, meta, html }) {
     const feedEl = $('feed');
     const empty = $('feedEmpty');
@@ -685,17 +752,18 @@
 
     const nearBottom = feedEl.scrollHeight - feedEl.scrollTop - feedEl.clientHeight < 40;
 
-    if (key === lastFeedKey && lastFeedMsg) {
-      const count = Number(lastFeedMsg.dataset.count || 1) + 1;
-      lastFeedMsg.dataset.count = count;
-      lastFeedMsg.querySelector('.meta').innerHTML = `${esc(meta)}<span class="repeat">×${count}</span>`;
+    const prev = lastFeed[avatar];
+    if (prev && prev.key === key && prev.msg.isConnected) {
+      const count = Number(prev.msg.dataset.count || 1) + 1;
+      prev.msg.dataset.count = count;
+      prev.msg.querySelector('.meta').innerHTML = `${esc(meta)}<span class="repeat">×${count}</span>`;
+      feedEl.appendChild(prev.msg);
     } else {
       const msg = document.createElement('div');
       msg.className = 'msg ' + (cls || '');
       msg.innerHTML = `<div class="avatar">${esc(avatar)}</div><div class="bubble"><div class="meta">${esc(meta)}</div>${html}</div>`;
       feedEl.appendChild(msg);
-      lastFeedKey = key;
-      lastFeedMsg = msg;
+      lastFeed[avatar] = { key, msg };
       while (feedEl.children.length > FEED_LIMIT) feedEl.firstElementChild.remove();
     }
     if (nearBottom) feedEl.scrollTop = feedEl.scrollHeight;
@@ -703,6 +771,7 @@
 
   function updateAge() {
     $('aiAge').textContent = lastAnalysis ? ago(lastAnalysis.createdAt) : '—';
+    $('stAge').textContent = lastStrategy ? ago(lastStrategy.createdAt) : '—';
   }
 
   // ---------- WebSocket ----------
@@ -729,6 +798,7 @@
         case 'hello':
         case 'status': onStatus(msg.data); break;
         case 'tire_analysis': onTireAnalysis(msg.data); break;
+        case 'strategy': onStrategy(msg.data); break;
         case 'analysis_error': onAnalysisError(msg.data); break;
       }
     });
@@ -737,6 +807,7 @@
       $('connPill').dataset.state = 'offline';
       $('connText').textContent = 'Server offline · retrying';
       $('analyzeBtn').disabled = true;
+      $('strategyBtn').disabled = true;
       setTimeout(connect, retryMs);
       retryMs = Math.min(retryMs * 2, 5000);
     });
@@ -750,6 +821,15 @@
     btn.disabled = true;
     btn.textContent = 'Analyzing…';
     setTimeout(() => { btn.textContent = 'Analyze now'; btn.disabled = !socketOpen || !status?.ai?.enabled; }, 4000);
+  });
+
+  $('strategyBtn').addEventListener('click', () => {
+    if (!socketOpen) return;
+    socket.send(JSON.stringify({ type: 'requestStrategy' }));
+    const btn = $('strategyBtn');
+    btn.disabled = true;
+    btn.textContent = 'Updating…';
+    setTimeout(() => { btn.textContent = 'Update'; btn.disabled = !socketOpen || !status?.ai?.enabled; }, 4000);
   });
 
   // ---------- settings UI ----------

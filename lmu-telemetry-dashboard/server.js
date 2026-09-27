@@ -8,7 +8,8 @@
  *  - broadcasts snapshots to dashboards over ws://HOST:PORT/telemetry at 10 Hz
  *  - samples tire history at 1 Hz
  *  - asks Claude for a tire analysis (src/tire-analyzer.js) every ANALYSIS_INTERVAL_MS
- *    and broadcasts it
+ *  - asks Claude for a strategy call (src/strategy-analyzer.js) after every lap and pit stop
+ *  - broadcasts both to the dashboard
  */
 
 require('dotenv').config({ quiet: true });
@@ -22,6 +23,8 @@ const { parseSnapshot } = require('./src/telemetryParser');
 const { TireHistory } = require('./src/tireHistory');
 const { ClaudeClient, describeClaudeError } = require('./src/claudeClient');
 const { TireAnalyzer } = require('./src/tire-analyzer');
+const { SessionTracker } = require('./src/sessionTracker');
+const { StrategyAnalyzer } = require('./src/strategy-analyzer');
 
 const config = {
   host: process.env.HOST || '127.0.0.1',
@@ -38,6 +41,9 @@ const config = {
   tireOptimalMinC: numEnv('TIRE_OPTIMAL_MIN_C', 75),
   tireOptimalMaxC: numEnv('TIRE_OPTIMAL_MAX_C', 100),
   tireWearLimitPercent: numEnv('TIRE_WEAR_LIMIT_PERCENT', 75),
+  pitLossSec: numEnv('PIT_LOSS_SEC', 35),
+  fuelReserveLaps: numEnv('FUEL_RESERVE_LAPS', 1),
+  strategyMaxIntervalMs: intEnv('STRATEGY_MAX_INTERVAL_MS', 180_000),
 };
 
 const RECONNECT_MS = 2000;
@@ -66,6 +72,7 @@ function createSource() {
 
 const source = createSource();
 const history = new TireHistory();
+const tracker = new SessionTracker();
 const claude = new ClaudeClient({
   apiKey: config.apiKey,
   model: config.model,
@@ -79,13 +86,25 @@ const tireAnalyzer = new TireAnalyzer({
   optimalMaxC: config.tireOptimalMaxC,
   wearLimitPercent: config.tireWearLimitPercent,
 });
+const strategyAnalyzer = new StrategyAnalyzer({
+  client: claude,
+  tracker,
+  pitLossSec: config.pitLossSec,
+  wearLimitPercent: config.tireWearLimitPercent,
+  fuelReserveLaps: config.fuelReserveLaps,
+});
 
 const state = {
   connected: false,
   live: false,
   message: 'Starting',
   snapshot: null,
+  field: [],
   tireAnalysis: null,
+  strategy: null,
+  strategyAt: 0,
+  strategyLap: 0,
+  strategyStops: 0,
   analysisError: null,
   lastVersion: null,
   lastFrameAt: 0,
@@ -179,12 +198,25 @@ function pollTelemetry() {
   const live = sinceFrame < STALE_MS;
   setStatus(true, live, live ? 'Live' : 'Connected, telemetry paused');
 
-  state.snapshot = { ...snapshot, timestamp: now, live, source: source.kind };
+  // The full field is only needed for strategy; keep it out of the 10 Hz broadcast
+  const { field, ...rest } = snapshot;
+  state.field = field;
+  state.snapshot = { ...rest, timestamp: now, live, source: source.kind };
   broadcast({ type: 'telemetry', data: state.snapshot });
 }
 
-function sampleTires() {
-  if (state.live && state.snapshot) history.record(state.snapshot);
+function sampleHistory() {
+  if (!state.live || !state.snapshot) return;
+  history.record(state.snapshot);
+  tracker.record({ ...state.snapshot, field: state.field });
+
+  // Strategy is re-evaluated when something strategic changes: a lap completes
+  // or a pit stop happens, with a periodic refresh for very long laps.
+  const lastLap = tracker.laps.length ? tracker.laps[tracker.laps.length - 1].lap : 0;
+  const newLap = lastLap !== state.strategyLap;
+  const newStop = tracker.pitStops.length !== state.strategyStops;
+  const stale = Date.now() - state.strategyAt > config.strategyMaxIntervalMs;
+  if (newLap || newStop || stale) runStrategy();
 }
 
 async function runTireAnalysis({ force = false } = {}) {
@@ -205,6 +237,26 @@ async function runTireAnalysis({ force = false } = {}) {
   }
 }
 
+async function runStrategy({ force = false } = {}) {
+  if (!strategyAnalyzer.enabled || !state.snapshot) return;
+  // Automatic calls wait for one clean lap: before that there is no fuel or wear rate
+  if (!force && (!state.live || wss.clients.size === 0 || tracker.cleanLaps().length === 0)) return;
+  if (strategyAnalyzer.inFlight) return;
+
+  state.strategyAt = Date.now();
+  state.strategyLap = tracker.laps.length ? tracker.laps[tracker.laps.length - 1].lap : 0;
+  state.strategyStops = tracker.pitStops.length;
+  try {
+    const result = await strategyAnalyzer.analyze({ ...state.snapshot, field: state.field }, state.tireAnalysis);
+    if (!result) return;
+    state.strategy = result;
+    broadcast({ type: 'strategy', data: result });
+  } catch (err) {
+    const message = describeClaudeError(err);
+    log.warn('[claude] strategy:', message);
+    broadcast({ type: 'analysis_error', data: { source: 'strategy', message, at: new Date().toISOString() } });
+  }
+}
 
 // --- HTTP + WebSocket -------------------------------------------------------
 
@@ -214,6 +266,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/api/health', (_req, res) => res.json(statusPayload()));
 app.get('/api/snapshot', (_req, res) => res.json(state.snapshot));
 app.get('/api/tire-analysis', (_req, res) => res.json(state.tireAnalysis));
+app.get('/api/strategy', (_req, res) => res.json(state.strategy));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/telemetry' });
@@ -245,6 +298,7 @@ wss.on('connection', (ws, req) => {
   send(ws, { type: 'hello', data: statusPayload() });
   if (state.snapshot) send(ws, { type: 'telemetry', data: state.snapshot });
   if (state.tireAnalysis) send(ws, { type: 'tire_analysis', data: state.tireAnalysis });
+  if (state.strategy) send(ws, { type: 'strategy', data: state.strategy });
 
   ws.on('message', (raw) => {
     let msg;
@@ -255,6 +309,7 @@ wss.on('connection', (ws, req) => {
     }
     if (msg.type === 'ping') send(ws, { type: 'pong', data: { at: Date.now() } });
     if (msg.type === 'requestAnalysis') runTireAnalysis({ force: true });
+    if (msg.type === 'requestStrategy') runStrategy({ force: true });
   });
 
   ws.on('close', () => log.info(`[ws] client disconnected (${wss.clients.size} total)`));
@@ -284,12 +339,13 @@ server.listen(config.port, config.host, () => {
     log.info(
       `Claude tire analysis: ${config.model} (effort ${config.effort}) every ${config.analysisIntervalMs / 1000}s while a dashboard is connected`,
     );
+    log.info('Claude strategy: after every completed lap and pit stop');
   } else {
     log.warn('Claude analysis disabled: set CLAUDE_API_KEY in .env to enable it');
   }
 
   timers.push(setInterval(pollTelemetry, Math.round(1000 / config.broadcastHz)));
-  timers.push(setInterval(sampleTires, config.tireSampleMs));
+  timers.push(setInterval(sampleHistory, config.tireSampleMs));
   if (claude.enabled) timers.push(setInterval(runTireAnalysis, config.analysisIntervalMs));
   pollTelemetry();
 });

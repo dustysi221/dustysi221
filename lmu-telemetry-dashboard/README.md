@@ -2,7 +2,7 @@
 
 Node.js server that reads Le Mans Ultimate telemetry from
 `rFactor2SharedMemoryMapPlugin64.dll`, streams it to a browser dashboard over
-WebSocket, and asks Claude for a live tire analysis.
+WebSocket, and asks Claude for live tire analysis and race strategy calls.
 
 Open **http://localhost:3000** on your second monitor once the server is running.
 
@@ -28,6 +28,8 @@ npm test
 | `src/tireHistory.js` | 1 Hz tire history, per-lap wear, 60 s trends |
 | `src/claudeClient.js` | Shared Claude API wrapper: structured JSON output, refusal/fallback handling, cost tally |
 | `src/tire-analyzer.js` | Tire metrics + Claude tire engineer (health, pressures, pit window, driving tips) |
+| `src/sessionTracker.js` | Whole-session history: per-lap time/fuel/wear, stints, pit stops, rival lap times |
+| `src/strategy-analyzer.js` | Strategy metrics + Claude strategist (pit timing, fuel, tire trend, rivals) |
 | `src/mockSource.js` | Simulator that emits real rF2 binary buffers |
 
 ## Timing
@@ -36,7 +38,8 @@ npm test
 |---|---|---|
 | Shared-memory read + WebSocket broadcast | 10 Hz | `BROADCAST_HZ` |
 | Tire history sample | 1 s | `TIRE_SAMPLE_MS` |
-| Claude analysis | 5 s | `ANALYSIS_INTERVAL_MS` |
+| Claude tire analysis | 5 s | `ANALYSIS_INTERVAL_MS` |
+| Claude strategy | after each clean lap and each pit stop (max 180 s apart) | `STRATEGY_MAX_INTERVAL_MS` |
 
 Claude analysis runs only while at least one dashboard is connected and the car
 is live (not paused or in menus), and never overlaps: a slow response skips
@@ -44,7 +47,7 @@ ticks instead of stacking up requests.
 
 ## API
 
-HTTP: `GET /api/health`, `GET /api/snapshot`, `GET /api/tire-analysis`.
+HTTP: `GET /api/health`, `GET /api/snapshot`, `GET /api/tire-analysis`, `GET /api/strategy`.
 
 WebSocket `ws://localhost:3000/telemetry`: every message is `{ "type", "data" }`.
 
@@ -54,10 +57,12 @@ WebSocket `ws://localhost:3000/telemetry`: every message is `{ "type", "data" }`
 | `status` | connection state changes | same as `hello` |
 | `telemetry` | 10 Hz | `{ session, vehicle, tires: { FL, FR, RL, RR }, live, timestamp }` |
 | `tire_analysis` | each Claude tire result | see [Tire analysis](#tire-analysis) |
+| `strategy` | each Claude strategy call | see [Race strategy](#race-strategy) |
 | `analysis_error` | a Claude call failed | `{ source, message, at }` |
 | `pong` | reply to `{ "type": "ping" }` | `{ at }` |
 
-Send `{ "type": "requestAnalysis" }` to trigger a tire analysis immediately.
+Send `{ "type": "requestAnalysis" }` or `{ "type": "requestStrategy" }` to run a tire
+analysis or strategy call immediately.
 
 Each tire in `telemetry` has `pressureKpa`, `temps { innerC, middleC, outerC }`,
 `surfaceTempC`, `carcassTempC`, `wearPercent` (0 = new), `remainingPercent`,
@@ -70,9 +75,11 @@ Each tire in `telemetry` has `pressureKpa`, `temps { innerC, middleC, outerC }`,
   window (default 75–100 °C), pressure unit (psi/kPa) and speed unit.
 - Speed, gear, RPM, current/last/best lap with delta, fuel with laps remaining
   (fuel per lap is measured from completed laps).
-- Claude panel: latest verdict and recommendations, plus an "engineer radio"
-  feed. Repeated identical verdicts collapse into one message with a ×N count.
-  Tires Claude flags are outlined on the car.
+- Claude panel in three columns: tire engineer (health, pressure change, pit
+  window, driving tips), strategist (the call, fuel, tire trend, plan, rivals,
+  next-stop service), and an "engineer radio" feed. A verdict identical to the
+  previous one from the same engineer collapses into one message with a ×N
+  count. Tires Claude flags are outlined on the car.
 - Fits 1920×1080 and 1366×768 without scrolling; stacks on phones and tablets.
 
 ## Tire analysis
@@ -119,4 +126,60 @@ const { TireAnalyzer } = require('./src/tire-analyzer');
 
 const tires = new TireAnalyzer({ client: new ClaudeClient({ apiKey: process.env.CLAUDE_API_KEY }) });
 const result = await tires.analyze(snapshot, tireHistory.summary());
+```
+
+## Race strategy
+
+`src/sessionTracker.js` keeps the whole session at 1 Hz: one record per
+completed lap (lap time, fuel used, wear per tire, stint), pit stops (detected
+from refuelling, a tire change, or the game's stop counter) and recent lap
+times for every car. Laps with a pit visit, and the partial lap the server
+joined on, are excluded from averages.
+
+`src/strategy-analyzer.js` turns that into strategy numbers:
+
+- race: laps remaining (lap limit, or estimated from time left and pace in a
+  timed race), positions
+- fuel: L/lap from the last 3 clean laps, laps in the tank, fuel needed to
+  finish plus a reserve lap, shortfall, **last lap you can still pit on**,
+  stops needed
+- tires: wear per lap now vs start of stint (acceleration), laps to the wear
+  limit, whether the set reaches the flag, laps a new set lasts, the tire
+  engineer's latest verdict
+- pace: recent clean laps and stint degradation (s/lap)
+- rivals: class leader and the cars directly ahead/behind in class, with gap,
+  average pace and pace delta per lap, stops made
+- pit loss (`PIT_LOSS_SEC`, an estimate you set per track)
+
+Claude, as the strategist, returns (`strategy` message, `GET /api/strategy`):
+
+```json
+{
+  "pit_recommendation": "Pit at the end of lap 30 for fuel; the tires reach the flag.",
+  "fuel_status": "2.9 L/lap, 47.9 L in tank = 16.5 laps; need 117 L to finish",
+  "tire_trend": "FL wear 1.1 %/lap and rising slightly; makes the finish",
+  "strategy": "One stop, fuel only at lap 30. Switch to four tires if FL wear passes 1.6 %/lap.",
+  "confidence": "high",
+  "call": "Stay out. Box end of lap 30, fuel only",
+  "competitor_analysis": "#6 1.5 s ahead and 0.8 s/lap quicker; #8 10 s behind, no undercut threat.",
+  "pit_lap": 30, "pit_window_laps": { "earliest": 28, "latest": 30 },
+  "stops_remaining": 1, "tires_to_finish": "yes", "service": "Fuel +70 L, no tires",
+  "metrics": { "...": "the computed numbers above" },
+  "lap": 15, "createdAt": "…", "model": "claude-opus-5", "latencyMs": 4200
+}
+```
+
+The first five fields are the core contract. Lap numbers are absolute race laps.
+Confidence is "low" until there are clean laps of fuel and wear data, and the
+prompt tells Claude never to plan a stop later than the fuel or tire limit.
+
+Use it on its own:
+
+```js
+const { SessionTracker } = require('./src/sessionTracker');
+const { StrategyAnalyzer } = require('./src/strategy-analyzer');
+
+const tracker = new SessionTracker();       // tracker.record(snapshotWithField) once per second
+const strategy = new StrategyAnalyzer({ client: claudeClient, tracker, pitLossSec: 40 });
+const call = await strategy.analyze(snapshotWithField, latestTireAnalysis);
 ```

@@ -76,14 +76,40 @@ function readScoring(scoringBuf) {
     Math.min(info.mNumVehicles, Math.floor((scoringBuf.length - SCORING_VEHICLES_OFFSET) / SCORING_STRIDE)),
   );
   let player = null;
+  const field = [];
   for (let i = 0; i < count; i++) {
     const v = koffi.decode(scoringBuf, SCORING_VEHICLES_OFFSET + i * SCORING_STRIDE, rF2VehicleScoring);
-    if (v.mIsPlayer) {
-      player = v;
-      break;
-    }
+    if (v.mIsPlayer) player = v;
+    field.push(parseCompetitor(v));
   }
-  return { info, player };
+  return { info, player, field };
+}
+
+/** Compact scoring entry for one car (used for strategy / competitor pace). */
+function parseCompetitor(v) {
+  return {
+    id: v.mID,
+    isPlayer: v.mIsPlayer,
+    driver: v.mDriverName,
+    vehicle: v.mVehicleName,
+    class: v.mVehicleClass,
+    position: v.mPlace,
+    lapsCompleted: v.mTotalLaps,
+    lastLapSec: lapTime(v.mLastLapTime),
+    bestLapSec: lapTime(v.mBestLapTime),
+    timeBehindLeaderSec: round(v.mTimeBehindLeader, 3),
+    lapsBehindLeader: v.mLapsBehindLeader,
+    inPits: v.mInPits,
+    pitStops: v.mNumPitstops,
+    finishStatus: v.mFinishStatus, // 0 none, 1 finished, 2 DNF, 3 DQ
+  };
+}
+
+function classPosition(field, player) {
+  if (!player) return null;
+  const sameClass = field.filter((c) => c.class === player.mVehicleClass).sort((a, b) => a.position - b.position);
+  const idx = sameClass.findIndex((c) => c.id === player.mID);
+  return idx >= 0 ? idx + 1 : null;
 }
 
 function findPlayerTelemetry(telemBuf, playerId) {
@@ -109,7 +135,7 @@ function findPlayerTelemetry(telemBuf, playerId) {
  * @returns snapshot object, or null if the player's car is not in the buffers
  */
 function parseSnapshot(raw) {
-  const { info, player } = readScoring(raw.scoring);
+  const { info, player, field } = readScoring(raw.scoring);
   const telem = findPlayerTelemetry(raw.telemetry, player ? player.mID : null);
   if (!telem) return null;
 
@@ -143,6 +169,7 @@ function parseSnapshot(raw) {
       lap: telem.mLapNumber,
       lapsCompleted: player ? player.mTotalLaps : null,
       position: player ? player.mPlace : null,
+      classPosition: classPosition(field, player),
       lastLapSec: player ? lapTime(player.mLastLapTime) : null,
       bestLapSec: player ? lapTime(player.mBestLapTime) : null,
       lapDistanceM: player ? round(player.mLapDist, 0) : null,
@@ -161,6 +188,8 @@ function parseSnapshot(raw) {
       rearCompound: telem.mRearTireCompoundName,
     },
     tires,
+    // Every car in the session. Not broadcast at 10 Hz; used by the strategy module.
+    field,
   };
 }
 
