@@ -114,7 +114,7 @@ LMU loads a plugin only when it is enabled in
      "DebugOutputSource": 1,
      "DedicatedServerMapGlobally": 0,
      "EnableDirectMemoryAccess": 0,
-     "EnableHWControlInput": 1,
+     "EnableHWControlInput": 0,
      "EnableRulesControlInput": 0,
      "EnableWeatherControlInput": 0,
      "UnsubscribedBuffersMask": 160
@@ -127,8 +127,12 @@ LMU loads a plugin only when it is enabled in
    reads **Telemetry (1)** and **Scoring (2)**, so the number must not include
    1 or 2. `160` (graphics + weather off) is fine.
 
-If your LMU version has a plugin switch in its in-game settings, turning the
-plugin on there does the same thing as this JSON edit.
+4. Keep `EnableHWControlInput`, `EnableDirectMemoryAccess`,
+   `EnableRulesControlInput` and `EnableWeatherControlInput` at `0`. The
+   dashboard only reads data and never needs the plugin to send anything to the
+   game.
+5. In LMU, open **Settings → Gameplay** and turn **Enable Plugins** on (recent
+   LMU versions have this switch; no plugin loads without it).
 
 ---
 
@@ -256,6 +260,7 @@ safety net.
 
 **The dashboard says "Waiting for LMU" while I'm driving**
 - Check that `rFactor2SharedMemoryMapPlugin64.dll` is in `Le Mans Ultimate\Plugins\`.
+- Check that **Settings → Gameplay → Enable Plugins** is on in LMU.
 - Check that `" Enabled": 1` is set in `UserData\player\CustomPluginVariables.JSON` (with the leading space). Edit that file only while the game is closed.
 - Check that `UnsubscribedBuffersMask` doesn't include 1 (telemetry) or 2 (scoring).
 - Restart LMU after changing the plugin or the JSON.
@@ -323,7 +328,7 @@ LMU ──► rF2 shared memory plugin ──► server.js ──► ws://localh
 | `server.js` | Express + WebSocket server, polling loop, analysis scheduling |
 | `public/index.html` | The dashboard (one file, inline CSS/JS, no build step) |
 | `src/rf2Layout.js` | Plugin memory layout (`#pragma pack(4)` structs) |
-| `src/sharedMemory.js` | Opens `$rF2SMMP_Telemetry$` / `$rF2SMMP_Scoring$` through kernel32 and copies consistent snapshots |
+| `src/sharedMemory.js` | Opens `$rFactor2SMMP_Telemetry$` / `$rFactor2SMMP_Scoring$` through kernel32 and copies consistent snapshots |
 | `src/telemetryParser.js` | Raw buffers → °C, kPa, wear %, lap data, the whole field |
 | `src/tireHistory.js` | 1 Hz tire history: per-lap wear and 60 s trends for the current set |
 | `src/sessionTracker.js` | Whole-session history: per-lap time/fuel/wear, stints, pit stops, rival lap times |

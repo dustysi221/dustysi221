@@ -156,7 +156,8 @@ function pollTelemetry() {
       state.lastVersion = null;
       setStatus(true, false, 'Shared memory opened, waiting for data');
     } catch (err) {
-      setStatus(false, false, 'Waiting for LMU (is the game running with the rF2 shared memory plugin enabled?)');
+      // Win32 error 2 = the plugin hasn't created the shared memory (game not running or plugin not loaded)
+      setStatus(false, false, `Waiting for LMU (is the game running with the rF2 shared memory plugin enabled?) [${err.message}]`);
       return;
     }
   }

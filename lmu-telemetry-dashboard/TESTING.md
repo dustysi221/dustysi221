@@ -129,7 +129,8 @@ same message. README section 6 covers each one.
 
 ## Stage 4: the real game
 
-1. Install and enable the plugin (README steps 2.4 and 2.5).
+1. Install and enable the plugin (README steps 2.4 and 2.5), and turn on
+   **Settings → Gameplay → Enable Plugins** in LMU.
 2. In `.env`, remove the `MOCK_SPEED` line. For a first live test, keep
    `ANALYSIS_INTERVAL_MS=60000` so you can focus on the data without
    spending much.

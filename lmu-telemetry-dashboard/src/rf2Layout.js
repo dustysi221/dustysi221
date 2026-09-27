@@ -12,7 +12,11 @@
  *   signed char          -> int8
  *   bool                 -> bool (1 byte)
  *
- * Expected struct sizes (asserted in test/layout.test.js):
+ * Verified field-by-field against the plugin's Include/rF2State.h (compiled
+ * for x64). Each mapped buffer is an rF2MappedBufferVersionBlock (8 bytes)
+ * followed by the struct, which starts with mBytesUpdatedHint (4 bytes).
+ *
+ * Expected struct sizes (asserted in test/telemetry.test.js):
  *   rF2Wheel 260, rF2VehicleTelemetry 1888, rF2ScoringInfo 548, rF2VehicleScoring 584
  */
 
@@ -20,8 +24,10 @@ const koffi = require('koffi');
 
 const MAX_MAPPED_VEHICLES = 128;
 
-const TELEMETRY_MAP_NAME = '$rF2SMMP_Telemetry$';
-const SCORING_MAP_NAME = '$rF2SMMP_Scoring$';
+// Names from the plugin source (SharedMemoryPlugin::MM_*_FILE_NAME). A plugin
+// running inside a dedicated server appends its PID; the game itself does not.
+const TELEMETRY_MAP_NAME = '$rFactor2SMMP_Telemetry$';
+const SCORING_MAP_NAME = '$rFactor2SMMP_Scoring$';
 
 // Fixed-size C strings: int8 arrays with the 'String' hint decode to JS strings.
 const cstr = (n) => koffi.array('int8', n, 'String');

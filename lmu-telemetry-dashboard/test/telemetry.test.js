@@ -25,6 +25,11 @@ test('struct sizes match rF2State.h (pack 4)', () => {
   assert.equal(L.SCORING_VEHICLES_OFFSET, 560);
 });
 
+test('shared memory names match the plugin', () => {
+  assert.equal(L.TELEMETRY_MAP_NAME, '$rFactor2SMMP_Telemetry$');
+  assert.equal(L.SCORING_MAP_NAME, '$rFactor2SMMP_Scoring$');
+});
+
 test('wheel temps map left/right to inner/outer per side, Kelvin to Celsius', () => {
   const wheel = {
     mTemperature: [373.15, 363.15, 353.15], // left 100C, center 90C, right 80C
