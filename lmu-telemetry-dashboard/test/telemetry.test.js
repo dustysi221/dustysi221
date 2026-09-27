@@ -10,7 +10,6 @@ const L = require('../src/rf2Layout');
 const { parseSnapshot, parseWheel } = require('../src/telemetryParser');
 const { MockSource } = require('../src/mockSource');
 const { TireHistory } = require('../src/tireHistory');
-const { buildPromptPayload } = require('../src/claudeAnalyzer');
 
 const { koffi } = L;
 
@@ -101,14 +100,6 @@ test('tire history computes per-lap wear and resets on a tire change', () => {
   h.record(snap(4, 0.1)); // new tires
   assert.equal(h.laps.length, 0);
   assert.equal(h.stintStartLap, 4);
-});
-
-test('prompt payload carries tires and history but not 10 Hz noise', () => {
-  const snap = parseSnapshot(new MockSource().read());
-  const payload = buildPromptPayload({ snapshot: snap, history: { lapsThisStint: 0 } });
-  assert.deepEqual(Object.keys(payload.tires), ['FL', 'FR', 'RL', 'RR']);
-  assert.ok(!('rpm' in payload.car));
-  assert.equal(payload.history.lapsThisStint, 0);
 });
 
 test('server streams telemetry over ws://.../telemetry at ~10 Hz', async (t) => {

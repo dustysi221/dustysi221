@@ -99,7 +99,7 @@
     padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; min-height: 0; position: relative;
     overflow: hidden; transition: border-color .3s;
   }
-  .tire[data-ai="watch"] { border-color: color-mix(in srgb, var(--watch) 70%, transparent); }
+  .tire[data-ai="fair"] { border-color: color-mix(in srgb, var(--watch) 70%, transparent); }
   .tire[data-ai="critical"] { border-color: var(--critical); box-shadow: 0 0 0 1px var(--critical) inset; }
   .tire-head { display: flex; justify-content: space-between; align-items: center; }
   .corner { font-weight: 700; letter-spacing: .1em; font-size: 13px; color: var(--muted); }
@@ -186,8 +186,16 @@
     font-size: 12px; font-weight: 700; letter-spacing: .1em; padding: 3px 10px; border-radius: 999px;
     border: 1px solid currentColor; color: var(--faint);
   }
-  .status.good { color: var(--good); } .status.watch { color: var(--watch); } .status.critical { color: var(--critical); }
+  .status.good { color: var(--good); } .status.fair { color: var(--watch); } .status.critical { color: var(--critical); }
   .ai-summary { font-size: clamp(16px, 1.5vw, 21px); line-height: 1.35; }
+  .ai-temp { color: var(--muted); font-size: 13px; }
+  .ai-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .fact { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0; }
+  .fact b { display: block; font-size: 15px; font-weight: 600; margin-top: 2px; }
+  .fact.urgent { border-color: var(--critical); }
+  .fact.urgent b { color: var(--critical); }
+  .bubble .facts { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .bubble .facts b { color: var(--text); font-weight: 600; }
   .recs { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
   .recs li {
     padding: 7px 10px 7px 12px; border-left: 3px solid var(--accent); background: var(--panel-2);
@@ -205,7 +213,7 @@
     font-size: 11px; font-weight: 700; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
   }
   .msg.good .avatar { border-color: var(--good); color: var(--good); }
-  .msg.watch .avatar { border-color: var(--watch); color: var(--watch); }
+  .msg.fair .avatar { border-color: var(--watch); color: var(--watch); }
   .msg.critical .avatar { border-color: var(--critical); color: var(--critical); }
   .bubble {
     background: var(--panel-2); border: 1px solid var(--line); border-radius: 4px 12px 12px 12px;
@@ -243,6 +251,7 @@
     .metric { padding: 8px 14px; }
     .metric.extra { display: none; }
     .ai-latest { padding: 10px 14px; gap: 7px; }
+    .ai-temp { display: none; }
   }
 
   /* ---------- narrow screens: stack and scroll ---------- */
@@ -356,15 +365,19 @@
 <section class="panel ai" aria-label="Claude analysis">
   <div class="ai-latest">
     <div class="ai-top">
-      <span class="ai-title">Race engineer · latest</span>
+      <span class="ai-title">Tire engineer · latest</span>
       <span class="status" id="aiStatus">NO DATA</span>
       <button id="analyzeBtn" disabled>Analyze now</button>
     </div>
     <div class="ai-summary" id="aiSummary">Waiting for the first analysis…</div>
-    <div class="label">Recommendations</div>
+    <div class="ai-temp" id="aiTemp"></div>
+    <div class="ai-facts">
+      <div class="fact"><span class="label">Pressure</span><b id="aiPressure">—</b></div>
+      <div class="fact" id="aiPitFact"><span class="label">Pit window</span><b id="aiPit">—</b></div>
+    </div>
+    <div class="label">Driving tips</div>
     <ul class="recs" id="aiRecs"></ul>
     <div class="ai-meta">
-      <span>Tire life <b class="num" id="aiLaps">—</b></span>
       <span>Updated <b id="aiAge">—</b></span>
       <span id="aiModel"></span>
     </div>
@@ -386,7 +399,8 @@
 
   // ---------- settings (per-viewer, optional localStorage) ----------
   const defaults = { optMin: 75, optMax: 100, pressureUnit: 'psi', speedUnit: 'kph' };
-  const settings = { ...defaults, ...loadSettings() };
+  const savedSettings = loadSettings();
+  const settings = { ...defaults, ...savedSettings };
 
   function loadSettings() {
     try { return JSON.parse(localStorage.getItem('lmu-dash-settings')) || {}; } catch { return {}; }
@@ -583,6 +597,16 @@
       state === 'paused' ? 'Paused' : 'Waiting for LMU';
     pill.title = data.message || '';
 
+    // Use the server's tire window unless this viewer picked their own
+    const ref = data.tireReference;
+    if (ref && savedSettings.optMin == null && savedSettings.optMax == null &&
+        (settings.optMin !== ref.optimalMinC || settings.optMax !== ref.optimalMaxC)) {
+      settings.optMin = $('optMin').value = ref.optimalMinC;
+      settings.optMax = $('optMax').value = ref.optimalMaxC;
+      renderLegend();
+      render();
+    }
+
     const ai = data.ai || {};
     const aiPill = $('aiPill');
     aiPill.dataset.state = ai.enabled ? (ai.lastError ? 'paused' : 'live') : 'offline';
@@ -608,33 +632,39 @@
   let lastFeedKey = null;
   let lastFeedMsg = null;
 
-  function onAnalysis(a) {
+  function onTireAnalysis(a) {
     lastAnalysis = a;
-    const st = a.overallStatus || '';
+    const health = a.tire_health || '';
     const statusEl = $('aiStatus');
-    statusEl.textContent = st ? st.toUpperCase() : 'NO DATA';
-    statusEl.className = 'status ' + st;
-    $('aiSummary').textContent = a.summary || '';
-    $('aiRecs').innerHTML = (a.recommendations || []).map((r) => `<li>${esc(r)}</li>`).join('') ||
-      '<li style="border-color:var(--faint);color:var(--muted)">No action needed.</li>';
-    $('aiLaps').textContent = a.estimatedLapsRemaining != null ? `~${a.estimatedLapsRemaining} laps` : '—';
+    statusEl.textContent = health ? health.toUpperCase() : 'NO DATA';
+    statusEl.className = 'status ' + health;
+    $('aiSummary').textContent = a.analysis || '';
+    $('aiTemp').textContent = a.temperature_analysis || '';
+    $('aiPressure').textContent = a.pressure_adjustment || '—';
+    $('aiPit').textContent = a.pit_window || '—';
+    $('aiPitFact').classList.toggle('urgent', a.pit_window_laps != null && a.pit_window_laps.earliest <= 3);
+    $('aiRecs').innerHTML = (a.driving_tips || []).map((r) => `<li>${esc(r)}</li>`).join('') ||
+      '<li style="border-color:var(--faint);color:var(--muted)">No changes needed.</li>';
     $('aiModel').textContent = [a.model, a.latencyMs ? `${(a.latencyMs / 1000).toFixed(1)}s` : null].filter(Boolean).join(' · ');
     updateAge();
     updateCost(a.totals);
 
     for (const c of CORNERS) {
       const t = a.tires?.[c];
-      tireEls[c].root.dataset.ai = t?.status || '';
-      tireEls[c].f.note.textContent = t && t.status !== 'good' ? t.note : '';
+      tireEls[c].root.dataset.ai = t?.health || '';
+      const show = t && (t.health !== 'good' || (t.temperature_state && t.temperature_state !== 'optimal'));
+      tireEls[c].f.note.textContent = show ? t.note : '';
     }
 
-    const lap = a.basedOn?.lap != null ? `Lap ${a.basedOn.lap}` : '';
+    const tips = a.driving_tips || [];
     addFeed({
-      key: `${st}|${a.summary}`,
-      cls: st,
-      avatar: 'AI',
-      meta: [timeOfDay(a.createdAt), lap, st.toUpperCase()].filter(Boolean).join(' · '),
-      html: `${esc(a.summary)}${(a.recommendations || []).length ? `<ul>${a.recommendations.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}`,
+      key: `${health}|${a.analysis}|${a.pressure_adjustment}|${a.pit_window}`,
+      cls: health,
+      avatar: 'TE',
+      meta: [timeOfDay(a.createdAt), a.lap != null ? `Lap ${a.lap}` : '', health.toUpperCase()].filter(Boolean).join(' · '),
+      html: `${esc(a.analysis)}
+        <div class="facts">Pressure <b>${esc(a.pressure_adjustment || '—')}</b> · Pit window <b>${esc(a.pit_window || '—')}</b></div>
+        ${tips.length ? `<ul>${tips.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}`,
     });
   }
 
@@ -698,7 +728,7 @@
         case 'telemetry': onTelemetry(msg.data); break;
         case 'hello':
         case 'status': onStatus(msg.data); break;
-        case 'analysis': onAnalysis(msg.data); break;
+        case 'tire_analysis': onTireAnalysis(msg.data); break;
         case 'analysis_error': onAnalysisError(msg.data); break;
       }
     });
@@ -732,6 +762,7 @@
     el.addEventListener('change', () => {
       settings[id] = el.type === 'number' ? Number(el.value) || defaults[id] : el.value;
       if (settings.optMax <= settings.optMin) settings.optMax = settings.optMin + 1;
+      savedSettings[id] = settings[id];
       saveSettings();
       renderLegend();
       render();

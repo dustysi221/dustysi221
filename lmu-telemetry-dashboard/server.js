@@ -7,7 +7,8 @@
  *    shared memory (Windows) or a built-in simulator (TELEMETRY_SOURCE=mock)
  *  - broadcasts snapshots to dashboards over ws://HOST:PORT/telemetry at 10 Hz
  *  - samples tire history at 1 Hz
- *  - asks Claude for a tire analysis every ANALYSIS_INTERVAL_MS and broadcasts it
+ *  - asks Claude for a tire analysis (src/tire-analyzer.js) every ANALYSIS_INTERVAL_MS
+ *    and broadcasts it
  */
 
 require('dotenv').config({ quiet: true });
@@ -19,7 +20,8 @@ const { WebSocketServer, WebSocket } = require('ws');
 
 const { parseSnapshot } = require('./src/telemetryParser');
 const { TireHistory } = require('./src/tireHistory');
-const { ClaudeAnalyzer } = require('./src/claudeAnalyzer');
+const { ClaudeClient, describeClaudeError } = require('./src/claudeClient');
+const { TireAnalyzer } = require('./src/tire-analyzer');
 
 const config = {
   host: process.env.HOST || '127.0.0.1',
@@ -33,6 +35,9 @@ const config = {
   model: process.env.ANALYSIS_MODEL || 'claude-opus-5',
   effort: process.env.ANALYSIS_EFFORT || 'low',
   fallbacks: (process.env.ANALYSIS_FALLBACKS || 'true') !== 'false',
+  tireOptimalMinC: numEnv('TIRE_OPTIMAL_MIN_C', 75),
+  tireOptimalMaxC: numEnv('TIRE_OPTIMAL_MAX_C', 100),
+  tireWearLimitPercent: numEnv('TIRE_WEAR_LIMIT_PERCENT', 75),
 };
 
 const RECONNECT_MS = 2000;
@@ -61,12 +66,18 @@ function createSource() {
 
 const source = createSource();
 const history = new TireHistory();
-const analyzer = new ClaudeAnalyzer({
+const claude = new ClaudeClient({
   apiKey: config.apiKey,
   model: config.model,
   effort: config.effort,
   useFallbacks: config.fallbacks,
   logger: log,
+});
+const tireAnalyzer = new TireAnalyzer({
+  client: claude,
+  optimalMinC: config.tireOptimalMinC,
+  optimalMaxC: config.tireOptimalMaxC,
+  wearLimitPercent: config.tireWearLimitPercent,
 });
 
 const state = {
@@ -74,7 +85,7 @@ const state = {
   live: false,
   message: 'Starting',
   snapshot: null,
-  analysis: null,
+  tireAnalysis: null,
   analysisError: null,
   lastVersion: null,
   lastFrameAt: 0,
@@ -98,12 +109,17 @@ function statusPayload() {
     message: state.message,
     clients: wss ? wss.clients.size : 0,
     ai: {
-      enabled: analyzer.enabled,
+      enabled: claude.enabled,
       model: config.model,
       effort: config.effort,
       intervalMs: config.analysisIntervalMs,
-      totals: analyzer.totals,
+      totals: claude.totalsRounded(),
       lastError: state.analysisError,
+    },
+    tireReference: {
+      optimalMinC: config.tireOptimalMinC,
+      optimalMaxC: config.tireOptimalMaxC,
+      wearLimitPercent: config.tireWearLimitPercent,
     },
   };
 }
@@ -171,32 +187,24 @@ function sampleTires() {
   if (state.live && state.snapshot) history.record(state.snapshot);
 }
 
-async function runAnalysis({ force = false } = {}) {
-  if (!analyzer.enabled || !state.snapshot) return;
+async function runTireAnalysis({ force = false } = {}) {
+  if (!tireAnalyzer.enabled || !state.snapshot) return;
   if (!force && (!state.live || wss.clients.size === 0)) return;
 
   try {
-    const analysis = await analyzer.analyze({ snapshot: state.snapshot, history: history.summary() });
+    const analysis = await tireAnalyzer.analyze(state.snapshot, history.summary());
     if (!analysis) return; // previous request still running
-    state.analysis = analysis;
+    state.tireAnalysis = analysis;
     state.analysisError = null;
-    broadcast({ type: 'analysis', data: analysis });
+    broadcast({ type: 'tire_analysis', data: analysis });
   } catch (err) {
-    const message = describeError(err);
+    const message = describeClaudeError(err);
     state.analysisError = message;
-    log.warn('[claude]', message);
-    broadcast({ type: 'analysis_error', data: { message, at: new Date().toISOString() } });
+    log.warn('[claude] tire analysis:', message);
+    broadcast({ type: 'analysis_error', data: { source: 'tire', message, at: new Date().toISOString() } });
   }
 }
 
-function describeError(err) {
-  const Anthropic = require('@anthropic-ai/sdk');
-  if (err instanceof Anthropic.AuthenticationError) return 'Invalid Claude API key (check CLAUDE_API_KEY in .env)';
-  if (err instanceof Anthropic.RateLimitError) return 'Claude API rate limit hit; will retry next interval';
-  if (err instanceof Anthropic.APIConnectionError) return 'Could not reach the Claude API (network)';
-  if (err instanceof Anthropic.APIError) return `Claude API error ${err.status}: ${err.message}`;
-  return err.message;
-}
 
 // --- HTTP + WebSocket -------------------------------------------------------
 
@@ -205,7 +213,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/health', (_req, res) => res.json(statusPayload()));
 app.get('/api/snapshot', (_req, res) => res.json(state.snapshot));
-app.get('/api/analysis', (_req, res) => res.json(state.analysis));
+app.get('/api/tire-analysis', (_req, res) => res.json(state.tireAnalysis));
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server, path: '/telemetry' });
@@ -236,7 +244,7 @@ wss.on('connection', (ws, req) => {
 
   send(ws, { type: 'hello', data: statusPayload() });
   if (state.snapshot) send(ws, { type: 'telemetry', data: state.snapshot });
-  if (state.analysis) send(ws, { type: 'analysis', data: state.analysis });
+  if (state.tireAnalysis) send(ws, { type: 'tire_analysis', data: state.tireAnalysis });
 
   ws.on('message', (raw) => {
     let msg;
@@ -246,7 +254,7 @@ wss.on('connection', (ws, req) => {
       return;
     }
     if (msg.type === 'ping') send(ws, { type: 'pong', data: { at: Date.now() } });
-    if (msg.type === 'requestAnalysis') runAnalysis({ force: true });
+    if (msg.type === 'requestAnalysis') runTireAnalysis({ force: true });
   });
 
   ws.on('close', () => log.info(`[ws] client disconnected (${wss.clients.size} total)`));
@@ -272,9 +280,9 @@ server.listen(config.port, config.host, () => {
   log.info(`LMU telemetry server on http://${config.host}:${config.port}`);
   log.info(`WebSocket: ws://${config.host}:${config.port}/telemetry`);
   log.info(`Telemetry source: ${source.kind}${source.kind === 'mock' ? ` (x${config.mockSpeed} speed)` : ''}`);
-  if (analyzer.enabled) {
+  if (claude.enabled) {
     log.info(
-      `Claude analysis: ${config.model} (effort ${config.effort}) every ${config.analysisIntervalMs / 1000}s while a dashboard is connected`,
+      `Claude tire analysis: ${config.model} (effort ${config.effort}) every ${config.analysisIntervalMs / 1000}s while a dashboard is connected`,
     );
   } else {
     log.warn('Claude analysis disabled: set CLAUDE_API_KEY in .env to enable it');
@@ -282,7 +290,7 @@ server.listen(config.port, config.host, () => {
 
   timers.push(setInterval(pollTelemetry, Math.round(1000 / config.broadcastHz)));
   timers.push(setInterval(sampleTires, config.tireSampleMs));
-  if (analyzer.enabled) timers.push(setInterval(runAnalysis, config.analysisIntervalMs));
+  if (claude.enabled) timers.push(setInterval(runTireAnalysis, config.analysisIntervalMs));
   pollTelemetry();
 });
 
@@ -306,6 +314,11 @@ function shutdown() {
 }
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+function numEnv(name, fallback) {
+  const n = Number(process.env[name]);
+  return process.env[name] !== undefined && process.env[name] !== '' && Number.isFinite(n) ? n : fallback;
+}
 
 function intEnv(name, fallback) {
   const n = parseInt(process.env[name], 10);
