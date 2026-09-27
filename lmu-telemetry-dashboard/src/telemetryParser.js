@@ -40,6 +40,16 @@ const kToC = (k) => round(k - KELVIN, 1);
 // Lap/sector times are <= 0 when not set
 const lapTime = (t) => (t > 0 ? round(t, 3) : null);
 
+function innerLayer(temps, isLeftSide) {
+  if (!Array.isArray(temps)) return null;
+  const [left, center, right] = temps;
+  return {
+    innerC: kToC(isLeftSide ? right : left),
+    middleC: kToC(center),
+    outerC: kToC(isLeftSide ? left : right),
+  };
+}
+
 function parseWheel(wheel, key) {
   // mTemperature is left/center/right as seen from the driver's seat, so the
   // outer edge is "left" on left-side tires and "right" on right-side tires.
@@ -57,6 +67,9 @@ function parseWheel(wheel, key) {
     },
     surfaceTempC: kToC((left + center + right) / 3),
     carcassTempC: kToC(wheel.mTireCarcassTemperature),
+    // Rubber just below the surface (same left/center/right order). Games often
+    // display this rather than the fast-changing surface temperature.
+    innerLayerTemps: innerLayer(wheel.mTireInnerLayerTemperature, isLeftSide),
     // mWear is 1.0 on a new tire and falls as it wears
     wearPercent: round((1 - wheel.mWear) * 100, 2),
     remainingPercent: round(wheel.mWear * 100, 2),
