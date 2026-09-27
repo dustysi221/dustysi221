@@ -333,6 +333,7 @@ LMU ──► rF2 shared memory plugin ──► server.js ──► ws://localh
 | `src/tireHistory.js` | 1 Hz tire history: per-lap wear and 60 s trends for the current set |
 | `src/sessionTracker.js` | Whole-session history: per-lap time/fuel/wear, stints, pit stops, rival lap times |
 | `src/claudeClient.js` | Shared Claude API wrapper: structured JSON output, refusal/fallback handling, cost tally |
+| `src/brevity.js` | Caps engineer text length so it stays glanceable |
 | `src/tire-analyzer.js` | Tire metrics + Claude tire engineer |
 | `src/strategy-analyzer.js` | Strategy metrics + Claude strategist |
 | `src/mockSource.js` | Simulator that writes real plugin-format buffers |
@@ -382,6 +383,7 @@ Each tire in `telemetry` has `pressureKpa`, `temps { innerC, middleC, outerC }`,
 ```json
 {
   "tire_health": "fair",
+  "radio": "Front left overheating. Ease off the brakes into slow right-handers.",
   "pressure_adjustment": "-0.2 PSI front left",
   "pit_window": "8-12 laps",
   "driving_tips": ["Less trail-brake into slow right-handers", "Smoother throttle on exit"],
@@ -395,6 +397,11 @@ Each tire in `telemetry` has `pressureKpa`, `temps { innerC, middleC, outerC }`,
 }
 ```
 
+`radio` is the one line the dashboard shows (and a future voice feature will
+speak): 1–2 sentences, at most ~25 words. The prompts ask for short answers,
+and `src/brevity.js` trims anything that still runs long. The other fields are
+short too and remain available through the API.
+
 Pressure changes are cold-pressure changes for the next stop. The telemetry has
 no corner-by-corner data, so tips name corner types rather than turn numbers.
 
@@ -407,6 +414,7 @@ no corner-by-corner data, so tips name corner types rather than turn numbers.
   "tire_trend": "FL wear 1.1 %/lap and rising slightly; makes the finish",
   "strategy": "One stop, fuel only at lap 30. Switch to four tires if FL wear passes 1.6 %/lap.",
   "confidence": "high",
+  "radio": "Box end of lap 30, fuel only. Tires make the finish.",
   "call": "Stay out. Box end of lap 30, fuel only",
   "competitor_analysis": "#6 1.5 s ahead and 0.8 s/lap quicker; #8 10 s behind, no undercut threat.",
   "pit_lap": 30, "pit_window_laps": { "earliest": 28, "latest": 30 },

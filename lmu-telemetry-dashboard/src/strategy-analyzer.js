@@ -17,6 +17,7 @@
  *      tire_trend: "Wear steady at 1.1 %/lap on the FL; tires reach the flag",
  *      strategy: "One-stop: box lap 30, full fuel, four tires, no splash needed",
  *      confidence: "high" | "medium" | "low",
+ *      radio: "Box end of lap 30, fuel only. Tires make the finish.",
  *      call, pit_lap, pit_window_laps, stops_remaining, tires_to_finish,
  *      service, competitor_analysis,
  *      metrics, lap, createdAt, model, latencyMs, usage, totals
@@ -24,6 +25,7 @@
  */
 
 const { WHEEL_KEYS } = require('./telemetryParser');
+const { limitWords } = require('./brevity');
 
 const DEFAULTS = {
   pitLossSec: 35, // time lost for a stop incl. pit lane; configured estimate
@@ -282,6 +284,7 @@ const SCHEMA = {
   type: 'object',
   properties: {
     call: { type: 'string' },
+    radio: { type: 'string' },
     pit_recommendation: { type: 'string' },
     fuel_status: { type: 'string' },
     tire_trend: { type: 'string' },
@@ -296,6 +299,7 @@ const SCHEMA = {
   },
   required: [
     'call',
+    'radio',
     'pit_recommendation',
     'fuel_status',
     'tire_trend',
@@ -332,14 +336,15 @@ How to make the call:
 - confidence: "high" with 3+ clean laps of fuel and wear data and consistent pace; "medium" with 1-2 clean laps, a timed-race lap estimate, or noisy pace; "low" with no clean laps or conflicting data.
 - Never invent data. The pit loss is an estimate and timed-race lap counts are estimates; say so when they drive the decision.
 
-Fields:
-- call: the radio call, at most ~10 words (e.g. "Box end of lap 30, fuel and tires", "Stay out, plan A")
-- pit_recommendation: when to pit and why, one sentence (e.g. "Pit in 5 laps for fresh tires and fuel")
-- fuel_status: rate, tank, laps, requirement (e.g. "2.9 L/lap, 45 L in tank = 15.5 laps; need 62 L to finish")
-- tire_trend: wear trend and whether the tires make the finish, one sentence
-- strategy: the overall plan and its trigger to change, 1-2 sentences
-- competitor_analysis: pace and gap comparison and any undercut/overcut threat, 1-2 sentences
-- service: what to do at the next stop (e.g. "Fuel +62 L, four tires", "Fuel only +18 L", "No stop")
+Brevity is critical. The driver reads this at a glance while racing, and it will later be spoken over the radio. Every word must earn its place:
+- radio: the one message for the driver. 1-2 short sentences, at most 25 words in total. Lead with the call, then the key reason, e.g. "Box end of lap 30, fuel only. Tires make the finish." or "Stay out, plan A. #6 is pulling away, no threat behind." No preamble, no hedging.
+- call: at most 8 words (e.g. "Box end of lap 30, fuel only", "Stay out, plan A")
+- pit_recommendation: at most 15 words (e.g. "Pit in 5 laps for tires and fuel")
+- fuel_status: at most 12 words (e.g. "2.9 L/lap, 15.5 laps in tank, 62 L short")
+- tire_trend: at most 12 words (e.g. "FL wear rising, makes the finish")
+- strategy: at most 20 words: the plan and the trigger to change it
+- competitor_analysis: at most 15 words
+- service: at most 6 words (e.g. "Fuel +62 L, four tires", "Fuel only +18 L", "No stop")
 - pit_lap / pit_window_laps / stops_remaining: null when unknown or when no stop is needed
 Use liters, seconds, and laps.`;
 
@@ -403,18 +408,19 @@ function normalize(d) {
       ? { earliest: d.pit_window_laps.earliest, latest: d.pit_window_laps.latest }
       : null;
   return {
-    pit_recommendation: str(d.pit_recommendation, 'No recommendation'),
-    fuel_status: str(d.fuel_status, 'Fuel data pending'),
-    tire_trend: str(d.tire_trend, 'Tire trend pending'),
-    strategy: str(d.strategy),
+    pit_recommendation: limitWords(str(d.pit_recommendation, 'No recommendation'), 20),
+    fuel_status: limitWords(str(d.fuel_status, 'Fuel data pending'), 15),
+    tire_trend: limitWords(str(d.tire_trend, 'Tire trend pending'), 15),
+    strategy: limitWords(str(d.strategy), 25),
     confidence: ['high', 'medium', 'low'].includes(d.confidence) ? d.confidence : 'low',
-    call: str(d.call),
-    competitor_analysis: str(d.competitor_analysis, 'No competitor data'),
+    call: limitWords(str(d.call), 10),
+    radio: limitWords(str(d.radio) || str(d.call) || str(d.pit_recommendation), 30),
+    competitor_analysis: limitWords(str(d.competitor_analysis, 'No competitor data'), 20),
     pit_lap: int(d.pit_lap),
     pit_window_laps: range,
     stops_remaining: int(d.stops_remaining),
     tires_to_finish: ['yes', 'marginal', 'no', 'unknown'].includes(d.tires_to_finish) ? d.tires_to_finish : 'unknown',
-    service: str(d.service),
+    service: limitWords(str(d.service), 8),
   };
 }
 

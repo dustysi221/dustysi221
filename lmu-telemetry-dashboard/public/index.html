@@ -199,7 +199,7 @@
     font-size: clamp(18px, 1.6vw, 24px); font-weight: 700; line-height: 1.25;
     border-left: 3px solid var(--accent); padding-left: 10px;
   }
-  .strat .fact b { font-size: 13px; font-weight: 500; line-height: 1.35; }
+  .strat .fact b { font-size: 14px; line-height: 1.35; }
   .strat { gap: 8px; }
   .plan { font-size: 14px; line-height: 1.4; }
   .plan.muted { color: var(--muted); font-size: 13px; }
@@ -261,7 +261,6 @@
     .metric { padding: 8px 14px; }
     .metric.extra { display: none; }
     .ai-latest { padding: 10px 14px; gap: 7px; }
-    .ai-temp, .strat .rivals { display: none; }
     .ai-summary { font-size: 15px; }
     .call { font-size: 17px; }
     .ai-top .ai-title { font-size: 11px; }
@@ -382,14 +381,11 @@
       <span class="status" id="aiStatus">NO DATA</span>
       <button id="analyzeBtn" disabled>Analyze now</button>
     </div>
-    <div class="ai-summary" id="aiSummary">Waiting for the first analysis…</div>
-    <div class="ai-temp" id="aiTemp"></div>
+    <div class="call" id="aiSummary">Waiting for the first analysis…</div>
     <div class="ai-facts">
       <div class="fact"><span class="label">Pressure</span><b id="aiPressure">—</b></div>
       <div class="fact" id="aiPitFact"><span class="label">Pit window</span><b id="aiPit">—</b></div>
     </div>
-    <div class="label">Driving tips</div>
-    <ul class="recs" id="aiRecs"></ul>
     <div class="ai-meta">
       <span>Updated <b id="aiAge">—</b></span>
       <span id="aiModel"></span>
@@ -402,17 +398,11 @@
       <button id="strategyBtn" disabled>Update</button>
     </div>
     <div class="call" id="stCall">Waiting for the first completed lap…</div>
-    <div class="plan" id="stPit"></div>
     <div class="ai-facts">
       <div class="fact"><span class="label">Fuel</span><b id="stFuel">—</b></div>
-      <div class="fact"><span class="label">Tires</span><b id="stTires">—</b></div>
+      <div class="fact"><span class="label">Next stop</span><b id="stService">—</b></div>
     </div>
-    <div class="label">Plan</div>
-    <div class="plan" id="stPlan">—</div>
-    <div class="label rivals">Rivals</div>
-    <div class="plan muted rivals" id="stRivals">—</div>
     <div class="ai-meta">
-      <span>Next stop <b id="stService">—</b></span>
       <span>Updated <b id="stAge">—</b></span>
     </div>
   </div>
@@ -674,13 +664,10 @@
     const statusEl = $('aiStatus');
     statusEl.textContent = health ? health.toUpperCase() : 'NO DATA';
     statusEl.className = 'status ' + health;
-    $('aiSummary').textContent = a.analysis || '';
-    $('aiTemp').textContent = a.temperature_analysis || '';
+    $('aiSummary').textContent = a.radio || a.analysis || '';
     $('aiPressure').textContent = a.pressure_adjustment || '—';
     $('aiPit').textContent = a.pit_window || '—';
     $('aiPitFact').classList.toggle('urgent', a.pit_window_laps != null && a.pit_window_laps.earliest <= 3);
-    $('aiRecs').innerHTML = (a.driving_tips || []).map((r) => `<li>${esc(r)}</li>`).join('') ||
-      '<li style="border-color:var(--faint);color:var(--muted)">No changes needed.</li>';
     $('aiModel').textContent = [a.model, a.latencyMs ? `${(a.latencyMs / 1000).toFixed(1)}s` : null].filter(Boolean).join(' · ');
     updateAge();
     updateCost(a.totals);
@@ -692,15 +679,15 @@
       tireEls[c].f.note.textContent = show ? t.note : '';
     }
 
-    const tips = a.driving_tips || [];
+    // A new radio message only when the verdict itself changes, not the wording
+    const pw = a.pit_window_laps ? `${a.pit_window_laps.earliest}-${a.pit_window_laps.latest}` : a.pit_window;
+    const perTire = CORNERS.map((c) => a.tires?.[c]?.health || '').join(',');
     addFeed({
-      key: `${health}|${a.analysis}|${a.pressure_adjustment}|${a.pit_window}`,
+      key: `${health}|${a.pressure_adjustment}|${pw}|${perTire}`,
       cls: health,
       avatar: 'TE',
       meta: [timeOfDay(a.createdAt), a.lap != null ? `Lap ${a.lap}` : '', health.toUpperCase()].filter(Boolean).join(' · '),
-      html: `${esc(a.analysis)}
-        <div class="facts">Pressure <b>${esc(a.pressure_adjustment || '—')}</b> · Pit window <b>${esc(a.pit_window || '—')}</b></div>
-        ${tips.length ? `<ul>${tips.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}`,
+      html: esc(a.radio || a.analysis),
     });
   }
 
@@ -711,25 +698,19 @@
     const confEl = $('stConf');
     confEl.textContent = `${conf.toUpperCase()} CONFIDENCE`;
     confEl.className = 'status conf-' + conf;
-    $('stCall').textContent = st.call || st.pit_recommendation;
-    $('stPit').textContent = st.call ? st.pit_recommendation : '';
+    $('stCall').textContent = st.radio || st.call || st.pit_recommendation;
     $('stFuel').textContent = st.fuel_status || '—';
-    $('stTires').textContent = st.tire_trend || '—';
-    $('stPlan').textContent = st.strategy || '—';
-    $('stRivals').textContent = st.competitor_analysis || '—';
     $('stService').textContent = st.service || '—';
     updateAge();
     updateCost(st.totals);
 
+    // A new radio message only when the plan changes (pit lap, service, stops)
     addFeed({
-      key: `st|${st.call}|${st.pit_recommendation}`,
+      key: `st|${st.pit_lap}|${st.service}|${st.stops_remaining}|${st.tires_to_finish}`,
       cls: 'strategy',
       avatar: 'ST',
       meta: [timeOfDay(st.createdAt), st.lap != null ? `Lap ${st.lap}` : '', `${conf} confidence`].filter(Boolean).join(' · '),
-      html: `<b>${esc(st.call || st.pit_recommendation)}</b>
-        <div class="facts">${esc(st.pit_recommendation)}</div>
-        <div class="facts">Fuel <b>${esc(st.fuel_status)}</b></div>
-        <div class="facts">Plan <b>${esc(st.strategy)}</b></div>`,
+      html: esc(st.radio || st.call || st.pit_recommendation),
     });
   }
 
@@ -741,9 +722,9 @@
 
   const timeOfDay = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '');
 
-  // Chat feed. A verdict identical to the previous one from the same source
-  // collapses into that bubble with a counter (and moves it to the bottom), so a
-  // steady stint doesn't flood the feed every 5 seconds.
+  // Chat feed. When a source repeats the same verdict (same key), its last
+  // bubble is refreshed with the latest wording and a counter instead of adding
+  // a new one, so a steady stint doesn't flood the feed every 5 seconds.
   function addFeed({ key, cls, avatar, meta, html }) {
     const feedEl = $('feed');
     const empty = $('feedEmpty');
@@ -756,7 +737,8 @@
     if (prev && prev.key === key && prev.msg.isConnected) {
       const count = Number(prev.msg.dataset.count || 1) + 1;
       prev.msg.dataset.count = count;
-      prev.msg.querySelector('.meta').innerHTML = `${esc(meta)}<span class="repeat">×${count}</span>`;
+      prev.msg.querySelector('.bubble').innerHTML =
+        `<div class="meta">${esc(meta)}<span class="repeat">×${count}</span></div>${html}`;
       feedEl.appendChild(prev.msg);
     } else {
       const msg = document.createElement('div');

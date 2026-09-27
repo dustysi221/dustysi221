@@ -97,6 +97,14 @@ test('after the stop: no more fuel stop needed, wear rate falls back to the prev
   assert.equal(m.tires.lastToFinish, true);
 });
 
+test('strategy radio message is short and falls back to the call', () => {
+  const words = Array(60).fill('word').join(' ');
+  assert.ok(normalize({ radio: words }).radio.split(/\s+/).length <= 30);
+  assert.equal(normalize({ call: 'Stay out, plan A' }).radio, 'Stay out, plan A');
+  assert.ok(normalize({ strategy: words }).strategy.split(/\s+/).length <= 25);
+  assert.ok(SCHEMA.required.includes('radio'));
+});
+
 test('normalize keeps the documented contract', () => {
   const out = normalize({ confidence: 'very', pit_lap: 12.5, pit_window_laps: { earliest: 1 } });
   assert.equal(out.confidence, 'low');

@@ -11,6 +11,7 @@
  *
  *    {
  *      tire_health: "good" | "fair" | "critical",
+ *      radio: "Front left overheating. Ease off the brakes into slow right-handers.",
  *      pressure_adjustment: "-0.2 PSI front left",
  *      pit_window: "8-12 laps",
  *      driving_tips: ["...", "..."],
@@ -24,6 +25,7 @@
  */
 
 const { WHEEL_KEYS } = require('./telemetryParser');
+const { limitWords } = require('./brevity');
 
 const KPA_TO_PSI = 0.1450377;
 const CORNER_NAMES = { FL: 'front left', FR: 'front right', RL: 'rear left', RR: 'rear right' };
@@ -183,6 +185,7 @@ const SCHEMA = {
   type: 'object',
   properties: {
     tire_health: HEALTH,
+    radio: { type: 'string' },
     analysis: { type: 'string' },
     temperature_analysis: { type: 'string' },
     pressure_adjustment: { type: 'string' },
@@ -221,6 +224,7 @@ const SCHEMA = {
   },
   required: [
     'tire_health',
+    'radio',
     'analysis',
     'temperature_analysis',
     'pressure_adjustment',
@@ -249,10 +253,16 @@ Assessment rules:
 - Tires below the window early in a stint (lap 1-2 on fresh tires, or trends still rising) are "warming", not a problem; say so.
 - Pressure: recommend cold-pressure changes for the next stop in PSI, in 0.1-0.5 PSI steps, naming the tire (e.g. "-0.2 PSI front left, +0.1 PSI rear right"). Base them on temperature distribution and trend, not on a guessed target pressure. If none are needed, use "No change" and an empty pressure_adjustments list.
 - pit_window: laps from now, as a range such as "8-12 laps", driven by projection.lapsToWearLimit (start the window a couple of laps before the limit; widen it when the wear rate is extrapolated rather than measured). If there is no wear rate yet, say "Insufficient data - need 1-2 more laps" and set pit_window_laps to null. If the tires will outlast the session, say so (e.g. "Beyond race end (14 laps left)").
-- driving_tips: 2-4 concrete technique changes that address the actual symptoms (e.g. front overheating -> less trail-brake and entry speed; rear overheating -> smoother throttle on exit; one side hot -> the corners loading that side). The brief has no corner-by-corner data, so describe corner types, not turn numbers.
-- analysis: 1-3 sentences, the key finding and what to do about it.
-- temperature_analysis: 1-2 sentences on overall temperature state: warming up, in the window, overheating, and any balance issue.
-- tires.<corner>.note: at most ~12 words.
+- driving_tips: 0-2 technique changes that address the actual symptom (e.g. front overheating -> less trail-brake; rear overheating -> smoother throttle on exit). The brief has no corner-by-corner data, so name corner types, not turn numbers.
+
+Brevity is critical. The driver reads this at a glance while racing, and it will later be spoken over the radio. Every word must earn its place:
+- radio: the one message for the driver. 1-2 short sentences, at most 25 words in total. Lead with the action, then the reason, e.g. "Front left overheating. Ease off the brakes into slow right-handers." or "Tires good, stint on target." No preamble, no hedging, no repeating the numbers on the dashboard.
+- analysis: one sentence, at most 20 words.
+- temperature_analysis: at most 12 words (e.g. "Fronts hot and rising, rears in window.").
+- pressure_adjustment: at most 8 words (e.g. "-0.2 PSI front left" or "No change").
+- pit_window: at most 6 words (e.g. "8-12 laps").
+- driving_tips: each at most 8 words.
+- tires.<corner>.note: at most 6 words; empty when the tire is fine.
 Use PSI and °C.`;
 
 class TireAnalyzer {
@@ -329,7 +339,7 @@ function normalize(d) {
     tires[k] = {
       health: ['good', 'fair', 'critical'].includes(t.health) ? t.health : 'fair',
       temperature_state: t.temperature_state || null,
-      note: str(t.note),
+      note: limitWords(str(t.note), 8),
     };
   }
   const adjustments = Array.isArray(d.pressure_adjustments)
@@ -339,11 +349,14 @@ function normalize(d) {
     : [];
   return {
     tire_health: ['good', 'fair', 'critical'].includes(d.tire_health) ? d.tire_health : 'fair',
-    pressure_adjustment: str(d.pressure_adjustment) || formatAdjustments(adjustments),
-    pit_window: str(d.pit_window, 'Unknown'),
-    driving_tips: Array.isArray(d.driving_tips) ? d.driving_tips.map((t) => str(t)).filter(Boolean).slice(0, 4) : [],
-    analysis: str(d.analysis),
-    temperature_analysis: str(d.temperature_analysis),
+    pressure_adjustment: limitWords(str(d.pressure_adjustment), 10) || formatAdjustments(adjustments),
+    pit_window: limitWords(str(d.pit_window, 'Unknown'), 8),
+    radio: limitWords(str(d.radio) || str(d.analysis), 30),
+    driving_tips: Array.isArray(d.driving_tips)
+      ? d.driving_tips.map((t) => limitWords(str(t), 10)).filter(Boolean).slice(0, 2)
+      : [],
+    analysis: limitWords(str(d.analysis), 25),
+    temperature_analysis: limitWords(str(d.temperature_analysis), 15),
     pressure_adjustments: adjustments,
     pit_window_laps:
       d.pit_window_laps && Number.isFinite(d.pit_window_laps.earliest) && Number.isFinite(d.pit_window_laps.latest)

@@ -96,7 +96,7 @@ test('normalize fills gaps and formats pressure changes', () => {
   assert.equal(out.tire_health, 'fair');
   assert.equal(out.pressure_adjustment, '-0.2 PSI front left');
   assert.equal(out.pressure_adjustments.length, 1);
-  assert.deepEqual(out.driving_tips, ['a', 'b', 'c', 'd']);
+  assert.deepEqual(out.driving_tips, ['a', 'b']); // at most two tips
   assert.equal(out.tires.FL.note, 'hot');
   assert.equal(out.tires.RR.health, 'fair');
   assert.equal(out.pit_window, 'Unknown');
@@ -177,4 +177,16 @@ test('ClaudeClient omits thinking and effort for Haiku, keeps them for other mod
   assert.equal(sent[0].output_config.effort, undefined);
   assert.deepEqual(sent[1].thinking, { type: 'adaptive' });
   assert.equal(sent[1].output_config.effort, 'low');
+});
+
+test('radio message is capped to about two sentences', () => {
+  const long =
+    'Front left is overheating on the inside edge by a wide margin. Ease off the brakes into the slow right-handers and ' +
+    'protect it for the next ten laps because the wear rate is accelerating and we will need it later in the stint.';
+  const out = normalize({ radio: long, analysis: long, driving_tips: [long] });
+  assert.ok(out.radio.split(/\s+/).length <= 30, out.radio);
+  assert.ok(out.analysis.split(/\s+/).length <= 25);
+  assert.ok(out.driving_tips[0].split(/\s+/).length <= 10);
+  assert.equal(normalize({ radio: 'Tires good.' }).radio, 'Tires good.');
+  assert.equal(normalize({ analysis: 'Fronts hot.' }).radio, 'Fronts hot.'); // falls back to analysis
 });
