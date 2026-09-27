@@ -157,3 +157,24 @@ test('analyze skips while a request is already running', async () => {
   release({ data: {}, meta: {} });
   assert.ok(await first);
 });
+
+test('ClaudeClient omits thinking and effort for Haiku, keeps them for other models', async () => {
+  const { ClaudeClient } = require('../src/claudeClient');
+  const sent = [];
+  for (const model of ['claude-haiku-4-5', 'claude-opus-5']) {
+    const client = new ClaudeClient({ apiKey: 'test', model, useFallbacks: false });
+    client.sdk = {
+      messages: {
+        create: async (params) => {
+          sent.push(params);
+          return { content: [{ type: 'text', text: '{}' }], stop_reason: 'end_turn', usage: {}, model };
+        },
+      },
+    };
+    await client.requestJson({ system: 's', payload: {}, schema: { type: 'object' } });
+  }
+  assert.equal(sent[0].thinking, undefined);
+  assert.equal(sent[0].output_config.effort, undefined);
+  assert.deepEqual(sent[1].thinking, { type: 'adaptive' });
+  assert.equal(sent[1].output_config.effort, 'low');
+});

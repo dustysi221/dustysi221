@@ -42,14 +42,15 @@ class ClaudeClient {
     const params = {
       model: this.model,
       max_tokens: maxTokens,
-      thinking: { type: 'adaptive' },
-      output_config: {
-        effort: this.effort,
-        format: { type: 'json_schema', schema },
-      },
+      output_config: { format: { type: 'json_schema', schema } },
       system,
       messages: [{ role: 'user', content: typeof payload === 'string' ? payload : JSON.stringify(payload) }],
     };
+    // Haiku 4.5 has no adaptive thinking or effort setting; it runs without thinking
+    if (!this.model.startsWith('claude-haiku')) {
+      params.thinking = { type: 'adaptive' };
+      params.output_config.effort = this.effort;
+    }
 
     const started = Date.now();
     const response = await this.#send(params);

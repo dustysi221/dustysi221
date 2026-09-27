@@ -1,51 +1,355 @@
 # LMU Telemetry Dashboard
 
-Node.js server that reads Le Mans Ultimate telemetry from
-`rFactor2SharedMemoryMapPlugin64.dll`, streams it to a browser dashboard over
-WebSocket, and asks Claude for live tire analysis and race strategy calls.
+A second-monitor dashboard for **Le Mans Ultimate** with an AI race engineer.
 
-Open **http://localhost:3000** on your second monitor once the server is running.
+A small Node.js server reads live telemetry from the game through the
+`rFactor2SharedMemoryMapPlugin64.dll` plugin, streams it to a browser page, and
+asks Claude for:
 
-Full installation steps come later; quick start:
+- **Tire analysis** (every 5 s): tire health, pressure changes, pit window,
+  temperature assessment and driving tips
+- **Race strategy** (after every lap and pit stop): when to pit, fuel status,
+  tire trend, overall plan and rival pace
 
-```bash
-npm install
-copy .env.example .env      # then put your key in CLAUDE_API_KEY
-npm start                   # live LMU telemetry (Windows)
-npm run mock                # simulated car, any OS, no game needed
-npm test
+![Dashboard on a simulated race](docs/dashboard.png)
+
+*Screenshot from the built-in simulator. The Claude text shown is sample data.*
+
+## Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Installation](#2-installation)
+3. [Running it](#3-running-it)
+4. [Configuration](#4-configuration)
+5. [API cost](#5-api-cost)
+6. [Troubleshooting](#6-troubleshooting)
+7. [How it works](#7-how-it-works)
+
+---
+
+## 1. Prerequisites
+
+| You need | Notes |
+|---|---|
+| **Windows 10 or 11** | The game's shared memory can only be read on the PC running LMU. |
+| **Le Mans Ultimate** | Installed through Steam. |
+| **Node.js 20 LTS or newer** | Download from [nodejs.org](https://nodejs.org/). Node 16 and 18 are too old: the web server library (Express 5) needs 18+, and 18 no longer gets security updates. Check with `node -v`. |
+| **Claude API key** | Create one at [console.anthropic.com](https://console.anthropic.com/settings/keys) and add credit to the account. Without a key the dashboard still works, just without the AI panels. |
+| **rFactor2SharedMemoryMapPlugin64.dll** | Free plugin that exposes LMU's telemetry. Step 2.4 covers it. |
+
+No compilers or Visual Studio build tools are needed; every dependency ships
+pre-built for Windows.
+
+---
+
+## 2. Installation
+
+### 2.1 Download the project
+
+**With Git:**
+
+```powershell
+git clone https://github.com/dustysi221/dustysi221.git
+cd dustysi221
+git checkout claude/kind-shannon-g0iy1c   # until this branch is merged into main
+cd lmu-telemetry-dashboard
 ```
 
-## Layout
+**Without Git:** on GitHub, switch to the `claude/kind-shannon-g0iy1c` branch,
+click **Code → Download ZIP**, unzip it, and open the `lmu-telemetry-dashboard`
+folder.
+
+### 2.2 Install dependencies
+
+Open PowerShell (or Command Prompt) in the `lmu-telemetry-dashboard` folder:
+
+```powershell
+npm install
+```
+
+### 2.3 Add your Claude API key
+
+```powershell
+copy .env.example .env
+notepad .env
+```
+
+Replace `your-key-here` with your key and save:
+
+```ini
+CLAUDE_API_KEY=sk-ant-...
+```
+
+`.env` must sit in the same folder as `server.js`. It is listed in
+`.gitignore`, so your key is never committed. Keep it private.
+
+### 2.4 Install the shared memory plugin into LMU
+
+1. Find the LMU install folder: in Steam, right-click **Le Mans Ultimate →
+   Manage → Browse local files**. It is usually
+   `C:\Program Files (x86)\Steam\steamapps\common\Le Mans Ultimate`.
+2. Open its `Plugins` folder. If `rFactor2SharedMemoryMapPlugin64.dll` is
+   already there (SimHub, CrewChief and similar tools install it), skip to 2.5.
+3. Otherwise download the latest release from
+   [TheIronWolfModding/rF2SharedMemoryMapPlugin](https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin/releases)
+   and copy `rFactor2SharedMemoryMapPlugin64.dll` into
+   `Le Mans Ultimate\Plugins\`.
+
+### 2.5 Enable the plugin
+
+LMU loads a plugin only when it is enabled in
+`Le Mans Ultimate\UserData\player\CustomPluginVariables.JSON`.
+
+1. Start LMU once with the DLL in place, then quit it. The game adds an entry
+   for the plugin to that file.
+2. With the game **closed**, open `CustomPluginVariables.JSON` in a text editor
+   and set `" Enabled"` to `1` for the plugin. The key really does start with a
+   space. The entry should look like this:
+
+   ```json
+   "rFactor2SharedMemoryMapPlugin64.dll": {
+     " Enabled": 1,
+     "DebugISIInternals": 0,
+     "DebugOutputLevel": 0,
+     "DebugOutputSource": 1,
+     "DedicatedServerMapGlobally": 0,
+     "EnableDirectMemoryAccess": 0,
+     "EnableHWControlInput": 1,
+     "EnableRulesControlInput": 0,
+     "EnableWeatherControlInput": 0,
+     "UnsubscribedBuffersMask": 160
+   }
+   ```
+
+   If the file has no entry, add this block inside the outer `{ }` (put a comma
+   after the previous entry).
+3. `UnsubscribedBuffersMask` switches off buffers you don't need. The dashboard
+   reads **Telemetry (1)** and **Scoring (2)**, so the number must not include
+   1 or 2. `160` (graphics + weather off) is fine.
+
+If your LMU version has a plugin switch in its in-game settings, turning the
+plugin on there does the same thing as this JSON edit.
+
+---
+
+## 3. Running it
+
+1. **Start the server** in the `lmu-telemetry-dashboard` folder:
+
+   ```powershell
+   node server.js
+   ```
+
+   (`npm start` does the same.) You should see:
+
+   ```
+   LMU telemetry server on http://127.0.0.1:3000
+   WebSocket: ws://127.0.0.1:3000/telemetry
+   Telemetry source: rf2
+   Claude tire analysis: claude-opus-5 (effort low) every 5s while a dashboard is connected
+   Claude strategy: after every completed lap and pit stop
+   ```
+
+2. **Open the dashboard** at **http://localhost:3000** in a browser on your
+   second monitor. Press F11 for full screen. Until the game is running, the
+   status pill shows *Waiting for LMU*.
+
+3. **Start an LMU session** (practice, qualifying or race) and drive out of
+   the garage. The pill turns green (*Live*) and the tires and gauges start
+   moving. The tire engineer reports within a few seconds, and the strategist
+   after your first clean lap. Use **Analyze now** and **Update** to ask for a
+   fresh call at any time.
+
+Stop the server with **Ctrl+C**. Leave the dashboard tab open between sessions;
+it reconnects by itself.
+
+### Try it without the game
+
+The simulator runs a 90-minute race with AI rivals and a pit stop, on any OS:
+
+```powershell
+npm run mock
+```
+
+Add `MOCK_SPEED=10` to `.env` to run it 10× faster. Claude calls cost the same
+in the simulator as in the game.
+
+### View it on a tablet or phone
+
+Set `HOST=0.0.0.0` in `.env`, restart the server, allow Node.js through the
+Windows Firewall when asked (private networks only), and open
+`http://<your-PC's-IP>:3000` on the device. `ipconfig` shows the PC's IP.
+
+---
+
+## 4. Configuration
+
+All settings live in `.env`; `.env.example` lists them with comments. Restart
+the server after a change.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `CLAUDE_API_KEY` | — | Your Claude API key. `ANTHROPIC_API_KEY` also works. |
+| `HOST` / `PORT` | `127.0.0.1` / `3000` | Where the dashboard is served. |
+| `TELEMETRY_SOURCE` | `auto` | `auto` = LMU on Windows, simulator elsewhere; or `rf2` / `mock`. |
+| `ANALYSIS_MODEL` | `claude-opus-5` | Claude model for both engineers. Also `claude-sonnet-5`, `claude-haiku-4-5`. |
+| `ANALYSIS_EFFORT` | `low` | How hard Claude thinks: `low` … `max`. Higher is slower and costs more. Ignored for Haiku. |
+| `ANALYSIS_INTERVAL_MS` | `5000` | How often the tire engineer runs. **The biggest cost lever.** |
+| `ANALYSIS_FALLBACKS` | `true` | If Claude declines a request, retry it on Anthropic's recommended fallback model. |
+| `TIRE_OPTIMAL_MIN_C` / `TIRE_OPTIMAL_MAX_C` | `75` / `100` | Tire operating window. Generic default; set it for your car and compound. |
+| `TIRE_WEAR_LIMIT_PERCENT` | `75` | Wear at which a tire counts as done (drives the pit window). An estimate; tune it. |
+| `PIT_LOSS_SEC` | `35` | Time lost per stop incl. pit lane. Set it per track; undercut/overcut advice depends on it. |
+| `FUEL_RESERVE_LAPS` | `1` | Extra fuel the strategist plans to carry to the flag. |
+| `STRATEGY_MAX_INTERVAL_MS` | `180000` | Refresh strategy at least this often on very long laps. |
+| `MOCK_SPEED` | `1` | Simulator time multiplier. |
+
+The dashboard's ⚙ menu has per-screen display settings (temperature window,
+psi/kPa, km/h/mph), saved in the browser.
+
+---
+
+## 5. API cost
+
+You pay Anthropic per token. The server only calls Claude **while a dashboard
+is open and the car is live** (not paused, not in menus), and never starts a new
+call before the previous one has finished.
+
+Each call sends about 2,000–2,500 tokens and gets back about 500–900 (the
+answer plus Claude's thinking). Estimated cost **per hour of driving**, with
+~100-second laps:
+
+| Setup | Tire engineer | Strategist | **Per hour** |
+|---|---|---|---|
+| Opus 5, tire analysis every 5 s *(default)* | ~$22 | ~$1.30 | **~$23** |
+| Opus 5, every 15 s | ~$7 | ~$1.30 | **~$8** |
+| Sonnet 5, every 5 s | ~$9 | ~$0.50 | **~$9** |
+| Sonnet 5, every 10 s | ~$4 | ~$0.50 | **~$5** |
+| Haiku 4.5, every 5 s | ~$3 | ~$0.20 | **~$3.50** |
+
+Prices used: Opus 5 $5 / $25, Sonnet 5 $2 / $10, Haiku 4.5 $1 / $5 per million
+input / output tokens. Treat the table as ±50%: output length varies with
+Claude's thinking.
+
+**For roughly $5–15 per one-hour race**, use Sonnet 5, or keep Opus 5 and run
+the tire engineer every 10–15 s:
+
+```ini
+ANALYSIS_MODEL=claude-sonnet-5
+ANALYSIS_INTERVAL_MS=5000
+```
+
+or
+
+```ini
+ANALYSIS_MODEL=claude-opus-5
+ANALYSIS_INTERVAL_MS=15000
+```
+
+The **Engineer radio** header shows the real number of calls and the running
+cost for the session, so you can check against your own driving. Set a monthly
+spend limit in the [Anthropic Console](https://console.anthropic.com/) as a
+safety net.
+
+---
+
+## 6. Troubleshooting
+
+**The dashboard says "Waiting for LMU" while I'm driving**
+- Check that `rFactor2SharedMemoryMapPlugin64.dll` is in `Le Mans Ultimate\Plugins\`.
+- Check that `" Enabled": 1` is set in `UserData\player\CustomPluginVariables.JSON` (with the leading space). Edit that file only while the game is closed.
+- Check that `UnsubscribedBuffersMask` doesn't include 1 (telemetry) or 2 (scoring).
+- Restart LMU after changing the plugin or the JSON.
+- If LMU runs as administrator, run PowerShell as administrator too (or run neither elevated).
+
+**The status pill says "Paused" and the dashboard is dimmed**
+Hover over the pill for the reason. *Connected, no player car on track*: you're
+in the menus, spectating, or watching a replay; drive out of the garage.
+*Connected, telemetry paused*: the game is paused. Either way it recovers by
+itself when telemetry resumes.
+
+**Numbers look wrong** (temperatures around −273 °C, pressures of 0, nonsense wear)
+The plugin version doesn't match the data layout the server expects. Install
+the latest plugin release, then check `http://localhost:3000/api/snapshot`. On
+track, tire temperatures should be roughly 60–110 °C and pressures roughly
+150–220 kPa.
+
+**"Server offline · retrying" in the browser**
+The server isn't running, or it stopped with an error. Check the PowerShell
+window and start it again with `node server.js`.
+
+**`Port 3000 is already in use`**
+Something else uses port 3000. Set `PORT=3001` in `.env` and open
+`http://localhost:3001`.
+
+**The AI pill says "AI off"**
+There's no `CLAUDE_API_KEY` in `.env`, or `.env` isn't in the same folder as
+`server.js`. Fix it and restart the server.
+
+**"Invalid Claude API key"**
+Copy the key again from the Console. It starts with `sk-ant-` and has no spaces or quotes.
+
+**"Claude API error 400" or "404" mentioning the model**
+Your account may not have access to that model. Try `ANALYSIS_MODEL=claude-sonnet-5`.
+
+**"Claude API rate limit hit"**
+Your account tier's rate limit is lower than the call rate. Raise
+`ANALYSIS_INTERVAL_MS` (for example `10000`) or use a smaller model.
+
+**The strategist says "Waiting for the first completed lap"**
+Automatic strategy calls start after your first clean lap, since before that
+there's no fuel or wear rate to work from. Press **Update** to ask anyway.
+
+**`npm install` fails**
+Check `node -v` shows 20 or newer. Behind a company proxy, set npm's `proxy`
+and `https-proxy` config.
+
+**The tablet can't reach the dashboard**
+Set `HOST=0.0.0.0`, restart, allow Node.js through the Windows Firewall on
+private networks, and use the PC's IP address, not `localhost`.
+
+---
+
+## 7. How it works
+
+```
+LMU ──► rF2 shared memory plugin ──► server.js ──► ws://localhost:3000/telemetry ──► dashboard
+                                        │
+                                        ├─ tire-analyzer.js ──► Claude (every 5 s)
+                                        └─ strategy-analyzer.js ──► Claude (every lap / pit stop)
+```
 
 | File | Purpose |
 |---|---|
-| `server.js` | Express + WebSocket server, polling loop, analysis scheduler |
-| `public/index.html` | The dashboard (single file, inline CSS/JS, no build step) |
-| `src/rf2Layout.js` | rF2 shared-memory struct definitions (`#pragma pack(4)`) |
-| `src/sharedMemory.js` | Opens `$rF2SMMP_Telemetry$` / `$rF2SMMP_Scoring$` via kernel32 and copies torn-read-safe snapshots |
-| `src/telemetryParser.js` | Buffers → normalized snapshot (°C, kPa, wear %) |
-| `src/tireHistory.js` | 1 Hz tire history, per-lap wear, 60 s trends |
-| `src/claudeClient.js` | Shared Claude API wrapper: structured JSON output, refusal/fallback handling, cost tally |
-| `src/tire-analyzer.js` | Tire metrics + Claude tire engineer (health, pressures, pit window, driving tips) |
+| `server.js` | Express + WebSocket server, polling loop, analysis scheduling |
+| `public/index.html` | The dashboard (one file, inline CSS/JS, no build step) |
+| `src/rf2Layout.js` | Plugin memory layout (`#pragma pack(4)` structs) |
+| `src/sharedMemory.js` | Opens `$rF2SMMP_Telemetry$` / `$rF2SMMP_Scoring$` through kernel32 and copies consistent snapshots |
+| `src/telemetryParser.js` | Raw buffers → °C, kPa, wear %, lap data, the whole field |
+| `src/tireHistory.js` | 1 Hz tire history: per-lap wear and 60 s trends for the current set |
 | `src/sessionTracker.js` | Whole-session history: per-lap time/fuel/wear, stints, pit stops, rival lap times |
-| `src/strategy-analyzer.js` | Strategy metrics + Claude strategist (pit timing, fuel, tire trend, rivals) |
-| `src/mockSource.js` | Simulator that emits real rF2 binary buffers |
+| `src/claudeClient.js` | Shared Claude API wrapper: structured JSON output, refusal/fallback handling, cost tally |
+| `src/tire-analyzer.js` | Tire metrics + Claude tire engineer |
+| `src/strategy-analyzer.js` | Strategy metrics + Claude strategist |
+| `src/mockSource.js` | Simulator that writes real plugin-format buffers |
 
-## Timing
+Both analyzers first compute the numbers in code (edge temperature spreads,
+wear per lap, laps to the wear limit, fuel per lap, the last lap you can pit on,
+rival gaps and pace), then give those to Claude. Claude does the engineering
+judgment and never has to do the arithmetic. Answers come back as JSON that
+matches a fixed schema.
 
-| Loop | Default | Env |
+Run the tests with `npm test`.
+
+### Timing
+
+| Loop | Default | Setting |
 |---|---|---|
-| Shared-memory read + WebSocket broadcast | 10 Hz | `BROADCAST_HZ` |
-| Tire history sample | 1 s | `TIRE_SAMPLE_MS` |
+| Shared-memory read + broadcast to dashboards | 10 Hz | `BROADCAST_HZ` |
+| Tire/session history sample | 1 s | `TIRE_SAMPLE_MS` |
 | Claude tire analysis | 5 s | `ANALYSIS_INTERVAL_MS` |
-| Claude strategy | after each clean lap and each pit stop (max 180 s apart) | `STRATEGY_MAX_INTERVAL_MS` |
+| Claude strategy | after each clean lap and pit stop (max 180 s apart) | `STRATEGY_MAX_INTERVAL_MS` |
 
-Claude analysis runs only while at least one dashboard is connected and the car
-is live (not paused or in menus), and never overlaps: a slow response skips
-ticks instead of stacking up requests.
-
-## API
+### HTTP and WebSocket API
 
 HTTP: `GET /api/health`, `GET /api/snapshot`, `GET /api/tire-analysis`, `GET /api/strategy`.
 
@@ -53,48 +357,21 @@ WebSocket `ws://localhost:3000/telemetry`: every message is `{ "type", "data" }`
 
 | type | when | data |
 |---|---|---|
-| `hello` | on connect | status (source, connected, live, ai config and running cost) |
-| `status` | connection state changes | same as `hello` |
+| `hello` / `status` | on connect / state change | source, connected, live, AI config and running cost, tire reference window |
 | `telemetry` | 10 Hz | `{ session, vehicle, tires: { FL, FR, RL, RR }, live, timestamp }` |
-| `tire_analysis` | each Claude tire result | see [Tire analysis](#tire-analysis) |
-| `strategy` | each Claude strategy call | see [Race strategy](#race-strategy) |
+| `tire_analysis` | each tire result | see below |
+| `strategy` | each strategy call | see below |
 | `analysis_error` | a Claude call failed | `{ source, message, at }` |
 | `pong` | reply to `{ "type": "ping" }` | `{ at }` |
 
-Send `{ "type": "requestAnalysis" }` or `{ "type": "requestStrategy" }` to run a tire
-analysis or strategy call immediately.
+Send `{ "type": "requestAnalysis" }` or `{ "type": "requestStrategy" }` to run
+either engineer immediately.
 
 Each tire in `telemetry` has `pressureKpa`, `temps { innerC, middleC, outerC }`,
 `surfaceTempC`, `carcassTempC`, `wearPercent` (0 = new), `remainingPercent`,
 `brakeTempC`, `loadN`, `gripFraction`, `flat`, `detached`.
 
-## Dashboard
-
-- Four tires laid out as on the car. Tread temps are split into outer/middle/inner
-  edges and colored cold → optimal → overheat; the ⚙ menu sets the optimal
-  window (default 75–100 °C), pressure unit (psi/kPa) and speed unit.
-- Speed, gear, RPM, current/last/best lap with delta, fuel with laps remaining
-  (fuel per lap is measured from completed laps).
-- Claude panel in three columns: tire engineer (health, pressure change, pit
-  window, driving tips), strategist (the call, fuel, tire trend, plan, rivals,
-  next-stop service), and an "engineer radio" feed. A verdict identical to the
-  previous one from the same engineer collapses into one message with a ×N
-  count. Tires Claude flags are outlined on the car.
-- Fits 1920×1080 and 1366×768 without scrolling; stacks on phones and tablets.
-
-## Tire analysis
-
-`src/tire-analyzer.js` first computes the numbers an engineer reads, then asks
-Claude (as the team's tire engineer) to judge them:
-
-- per tire: inner/middle/outer temps, inner−outer spread (camber),
-  middle−edges (pressure), carcass temp, hot pressure in PSI, wear %, wear per
-  lap (from completed laps, or extrapolated from the last 60 s before the first
-  full lap), laps to the wear limit, 60 s temp/pressure trends
-- front/rear and left/right temperature and wear balance
-- the tire that limits the stint, and laps/time left in the session
-
-Result (`tire_analysis` message, `GET /api/tire-analysis`):
+### Tire analysis result
 
 ```json
 {
@@ -107,51 +384,15 @@ Result (`tire_analysis` message, `GET /api/tire-analysis`):
   "pressure_adjustments": [{ "tire": "FL", "change_psi": -0.2, "reason": "hot inside edge" }],
   "pit_window_laps": { "earliest": 8, "latest": 12 },
   "tires": { "FL": { "health": "fair", "temperature_state": "hot", "note": "Inner edge +12°C" } },
-  "metrics": { "...": "the computed numbers above" },
-  "lap": 14, "createdAt": "…", "model": "claude-opus-5", "latencyMs": 3100,
-  "usage": { "inputTokens": 2600, "outputTokens": 600, "costUsd": 0.028 }
+  "metrics": { "...": "computed tire numbers" },
+  "lap": 14, "createdAt": "…", "model": "claude-opus-5", "latencyMs": 3100
 }
 ```
 
-The first five fields are the core contract; the rest are extras the dashboard
-uses. Pressure changes are cold-pressure changes for the next stop. The
-telemetry has no corner-by-corner data, so tips name corner types rather than
-turn numbers.
+Pressure changes are cold-pressure changes for the next stop. The telemetry has
+no corner-by-corner data, so tips name corner types rather than turn numbers.
 
-Use it on its own:
-
-```js
-const { ClaudeClient } = require('./src/claudeClient');
-const { TireAnalyzer } = require('./src/tire-analyzer');
-
-const tires = new TireAnalyzer({ client: new ClaudeClient({ apiKey: process.env.CLAUDE_API_KEY }) });
-const result = await tires.analyze(snapshot, tireHistory.summary());
-```
-
-## Race strategy
-
-`src/sessionTracker.js` keeps the whole session at 1 Hz: one record per
-completed lap (lap time, fuel used, wear per tire, stint), pit stops (detected
-from refuelling, a tire change, or the game's stop counter) and recent lap
-times for every car. Laps with a pit visit, and the partial lap the server
-joined on, are excluded from averages.
-
-`src/strategy-analyzer.js` turns that into strategy numbers:
-
-- race: laps remaining (lap limit, or estimated from time left and pace in a
-  timed race), positions
-- fuel: L/lap from the last 3 clean laps, laps in the tank, fuel needed to
-  finish plus a reserve lap, shortfall, **last lap you can still pit on**,
-  stops needed
-- tires: wear per lap now vs start of stint (acceleration), laps to the wear
-  limit, whether the set reaches the flag, laps a new set lasts, the tire
-  engineer's latest verdict
-- pace: recent clean laps and stint degradation (s/lap)
-- rivals: class leader and the cars directly ahead/behind in class, with gap,
-  average pace and pace delta per lap, stops made
-- pit loss (`PIT_LOSS_SEC`, an estimate you set per track)
-
-Claude, as the strategist, returns (`strategy` message, `GET /api/strategy`):
+### Strategy result
 
 ```json
 {
@@ -164,22 +405,29 @@ Claude, as the strategist, returns (`strategy` message, `GET /api/strategy`):
   "competitor_analysis": "#6 1.5 s ahead and 0.8 s/lap quicker; #8 10 s behind, no undercut threat.",
   "pit_lap": 30, "pit_window_laps": { "earliest": 28, "latest": 30 },
   "stops_remaining": 1, "tires_to_finish": "yes", "service": "Fuel +70 L, no tires",
-  "metrics": { "...": "the computed numbers above" },
+  "metrics": { "...": "computed strategy numbers" },
   "lap": 15, "createdAt": "…", "model": "claude-opus-5", "latencyMs": 4200
 }
 ```
 
-The first five fields are the core contract. Lap numbers are absolute race laps.
-Confidence is "low" until there are clean laps of fuel and wear data, and the
-prompt tells Claude never to plan a stop later than the fuel or tire limit.
+Lap numbers are absolute race laps. Rival data covers what the game's scoring
+data provides (positions, gaps, lap times, stop counts), not other cars' fuel or
+tires. Timed-race lap counts and the pit loss are estimates, and the strategist
+is told so.
 
-Use it on its own:
+### Using the modules in your own code
 
 ```js
+const { ClaudeClient } = require('./src/claudeClient');
+const { TireAnalyzer } = require('./src/tire-analyzer');
 const { SessionTracker } = require('./src/sessionTracker');
 const { StrategyAnalyzer } = require('./src/strategy-analyzer');
 
-const tracker = new SessionTracker();       // tracker.record(snapshotWithField) once per second
-const strategy = new StrategyAnalyzer({ client: claudeClient, tracker, pitLossSec: 40 });
-const call = await strategy.analyze(snapshotWithField, latestTireAnalysis);
+const claude = new ClaudeClient({ apiKey: process.env.CLAUDE_API_KEY, model: 'claude-opus-5' });
+const tires = new TireAnalyzer({ client: claude });
+const tracker = new SessionTracker(); // tracker.record(snapshot) once per second
+const strategy = new StrategyAnalyzer({ client: claude, tracker, pitLossSec: 40 });
+
+const tireReport = await tires.analyze(snapshot, tireHistory.summary());
+const call = await strategy.analyze(snapshotWithField, tireReport);
 ```
