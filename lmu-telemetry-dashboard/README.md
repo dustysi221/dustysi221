@@ -1,8 +1,10 @@
-# LMU Telemetry Dashboard — backend
+# LMU Telemetry Dashboard
 
 Node.js server that reads Le Mans Ultimate telemetry from
-`rFactor2SharedMemoryMapPlugin64.dll`, streams it to dashboards over
+`rFactor2SharedMemoryMapPlugin64.dll`, streams it to a browser dashboard over
 WebSocket, and asks Claude for a live tire analysis.
+
+Open **http://localhost:3000** on your second monitor once the server is running.
 
 Full installation steps come later; quick start:
 
@@ -19,6 +21,7 @@ npm test
 | File | Purpose |
 |---|---|
 | `server.js` | Express + WebSocket server, polling loop, analysis scheduler |
+| `public/index.html` | The dashboard (single file, inline CSS/JS, no build step) |
 | `src/rf2Layout.js` | rF2 shared-memory struct definitions (`#pragma pack(4)`) |
 | `src/sharedMemory.js` | Opens `$rF2SMMP_Telemetry$` / `$rF2SMMP_Scoring$` via kernel32 and copies torn-read-safe snapshots |
 | `src/telemetryParser.js` | Buffers → normalized snapshot (°C, kPa, wear %) |
@@ -58,3 +61,15 @@ Send `{ "type": "requestAnalysis" }` to trigger an analysis immediately.
 Each tire in `telemetry` has `pressureKpa`, `temps { innerC, middleC, outerC }`,
 `surfaceTempC`, `carcassTempC`, `wearPercent` (0 = new), `remainingPercent`,
 `brakeTempC`, `loadN`, `gripFraction`, `flat`, `detached`.
+
+## Dashboard
+
+- Four tires laid out as on the car. Tread temps are split into outer/middle/inner
+  edges and colored cold → optimal → overheat; the ⚙ menu sets the optimal
+  window (default 75–100 °C), pressure unit (psi/kPa) and speed unit.
+- Speed, gear, RPM, current/last/best lap with delta, fuel with laps remaining
+  (fuel per lap is measured from completed laps).
+- Claude panel: latest verdict and recommendations, plus an "engineer radio"
+  feed. Repeated identical verdicts collapse into one message with a ×N count.
+  Tires Claude flags are outlined on the car.
+- Fits 1920×1080 and 1366×768 without scrolling; stacks on phones and tablets.
