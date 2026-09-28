@@ -146,3 +146,17 @@ test('control panel: stop server shuts it down', async (t) => {
   assert.equal(res.status, 200);
   await exited;
 });
+
+test('control panel: voice button state is reported; assigning needs Windows', async (t) => {
+  const srv = await startServer('');
+  t.after(srv.stop);
+  const state = await (await fetch(srv.base + '/api/control')).json();
+  assert.equal(state.wheel.supported, process.platform === 'win32');
+  if (process.platform !== 'win32') {
+    const res = await srv.post('/api/control/wheel/learn', {});
+    assert.equal(res.status, 400);
+    assert.match(res.body.error, /Windows/);
+  }
+  const cleared = await srv.post('/api/control/wheel/clear', {});
+  assert.equal(cleared.body.wheel.binding, null);
+});

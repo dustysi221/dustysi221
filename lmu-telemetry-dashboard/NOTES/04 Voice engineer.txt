@@ -19,13 +19,29 @@ Click "Enable voice" (top right). The button changes to "Push to talk".
 The first time, the browser asks for the microphone: click Allow.
 
 -----------------------------------------------------------------
-2. ONE-TIME SETUP (settings are remembered by the browser)
+2. PUT THE TALK BUTTON ON YOUR WHEEL (one time)
 -----------------------------------------------------------------
-a) Press any button on your wheel (so the browser detects it).
-b) Click the gear icon (top right) -> "Voice - push to talk".
-   "Detected" should show your wheel's name.
-c) Click "Assign" and press the wheel button you want to use.
-   The line shows "Wheel button: <your wheel> - button <number>".
+Do this in the CONTROL PANEL. The server then reads the button itself, so
+it works while LMU is the active window (you never click the dashboard).
+
+a) Open the Control Panel (Control Panel.bat, or "Control" on the dashboard).
+b) In "Voice button (wheel)", check "Controllers found" lists your wheel.
+c) Click "Assign button" and press the wheel button you want (within 15 s).
+d) It shows "Button <number> on <your wheel> - ready".
+   Press the button: it says "PRESSED" (the page updates every 1-2 seconds).
+e) "Change button" picks a different one. "Clear" removes it.
+Saved in .env, so it's remembered next time.
+Button numbers are the same as Windows' "Set up USB game controllers"
+(Windows key -> type joy.cpl -> Enter -> Properties).
+Limit: buttons 1-32 only.
+
+(Without a Control Panel button, the dashboard's own wheel reading in the
+gear menu is used instead, but that only works reliably while the dashboard
+window is focused.)
+
+-----------------------------------------------------------------
+3. VOICE SETTINGS (gear icon on the dashboard, remembered by the browser)
+-----------------------------------------------------------------
 d) Pick an "Engineer voice" (Edge's "Natural" voices sound best).
 e) "Speech speed" if it talks too fast or slow.
 f) Click "Test voice" -> you should hear "Radio check...".
@@ -33,7 +49,14 @@ g) Optional: tick "Read out new engineer calls" to also hear the tire
    engineer and strategist whenever their advice changes.
 
 -----------------------------------------------------------------
-3. HOW TO TALK
+4. BEFORE YOU START LMU
+-----------------------------------------------------------------
+Click "Enable voice" on the dashboard BEFORE starting LMU (after that you
+never need to touch the dashboard). Keep the dashboard visible on your
+second monitor, not minimized.
+
+-----------------------------------------------------------------
+5. HOW TO TALK
 -----------------------------------------------------------------
 1. HOLD your wheel button.
    (Or hold V on the keyboard with the dashboard clicked, or hold the mic
@@ -48,7 +71,7 @@ Follow-ups work: it remembers your last few questions.
   "How are my tires?"  ->  "What about the rears?"
 
 -----------------------------------------------------------------
-4. GOOD THINGS TO ASK
+6. GOOD THINGS TO ASK
 -----------------------------------------------------------------
   "How are my tires looking?"
   "When should I pit?"            (after 2-3 laps, it needs fuel data)
@@ -59,21 +82,27 @@ Follow-ups work: it remembers your last few questions.
   "What pressure changes for the next stop?"
 
 -----------------------------------------------------------------
-5. IMPORTANT
+7. IMPORTANT
 -----------------------------------------------------------------
-- Keep the dashboard window VISIBLE on your second monitor (not minimized),
-  or the browser stops reading the wheel.
-- Whether the wheel button works while LMU has focus depends on the browser.
-  Test it (see 05, or TESTING.md stage 3b). If it doesn't work in Chrome,
-  try Edge.
+- Keep the dashboard window VISIBLE on your second monitor (not minimized).
+- With the button assigned in the Control Panel, pressing it works while
+  LMU has focus. Still to confirm on your PC: that the browser also LISTENS
+  and SPEAKS while it isn't the focused window (test it once; if it doesn't,
+  tell me which browser).
 - Your recording is sent to Google (Chrome) or Microsoft (Edge) to turn it
   into text. It's free but needs internet.
 - The engineer's personality, answer length and radio phrases are in
   src\voice-prompts.js. Edit that file and restart to change them.
 
 -----------------------------------------------------------------
-6. VOICE PROBLEMS
+8. VOICE PROBLEMS
 -----------------------------------------------------------------
+Wheel not in "Controllers found" (Control Panel)
+                           -> plug it in / turn the base on, wait a few
+                              seconds; check it shows in joy.cpl.
+Button shows "not connected"
+                           -> the wheel was unplugged or renamed; plug it
+                              in, or "Change button" and assign again.
 "Voice unsupported"        -> use Chrome or Edge, not Firefox.
 "Voice is off"             -> click "Enable voice" first.
 "Microphone blocked"       -> click the icon left of localhost:3000 in the

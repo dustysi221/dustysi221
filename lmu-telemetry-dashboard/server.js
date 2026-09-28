@@ -31,6 +31,7 @@ const { SessionTracker } = require('./src/sessionTracker');
 const { StrategyAnalyzer } = require('./src/strategy-analyzer');
 const { VoiceAssistant, BusyError } = require('./src/voice-assistant');
 const { updateEnvFile } = require('./src/envFile');
+const { WheelButtons } = require('./src/wheelButtons');
 
 const MODELS = ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'];
 const EFFORTS = ['low', 'medium', 'high'];
@@ -59,6 +60,12 @@ const config = {
   tireEngineer: boolEnv('TIRE_ENGINEER', true),
   strategist: boolEnv('STRATEGIST', true),
   voiceEngineer: boolEnv('VOICE_ENGINEER', true),
+  // Push-to-talk wheel button, read by the server so it works while LMU has focus
+  voiceButton: {
+    deviceName: process.env.VOICE_BUTTON_DEVICE || null,
+    deviceId: process.env.VOICE_BUTTON_DEVICE_ID,
+    button: process.env.VOICE_BUTTON,
+  },
 };
 
 const RECONNECT_MS = 2000;
@@ -132,6 +139,24 @@ const voice = new VoiceAssistant({
   }),
 });
 
+const wheel = new WheelButtons({ binding: config.voiceButton, logger: log });
+wheel.on('down', () => broadcast({ type: 'ptt', data: { down: true } }));
+wheel.on('up', () => broadcast({ type: 'ptt', data: { down: false } }));
+wheel.on('devices', (devices) => {
+  log.info(`[wheel] controllers: ${devices.map((d) => `${d.name} (#${d.id + 1})`).join(', ') || 'none'}`);
+  broadcast({ type: 'status', data: statusPayload() });
+});
+
+function voiceButtonStatus() {
+  const w = wheel.state();
+  return {
+    supported: w.supported,
+    bound: Boolean(w.binding),
+    connected: w.connected,
+    label: w.binding ? `Button ${w.binding.button} on ${w.binding.deviceName || `controller #${(w.binding.deviceId ?? 0) + 1}`}` : null,
+  };
+}
+
 const state = {
   connected: false,
   live: false,
@@ -183,6 +208,7 @@ function statusPayload() {
       totals: claude.totalsRounded(),
       lastError: state.analysisError,
     },
+    voiceButton: voiceButtonStatus(),
     tireReference: {
       optimalMinC: config.tireOptimalMinC,
       optimalMaxC: config.tireOptimalMaxC,
@@ -383,6 +409,7 @@ function controlState() {
       gameAvailable: process.platform === 'win32',
     },
     dashboards: wss ? wss.clients.size : 0,
+    wheel: wheel.state(),
     options: { models: MODELS, efforts: EFFORTS, tireIntervalsSec: [5, 10, 15, 30, 60], mockSpeeds: [1, 5, 10, 20] },
   };
 }
@@ -505,6 +532,31 @@ app.post('/api/control/api-key', requireLocal, express.json(), (req, res) => {
   res.json(controlState());
 });
 
+app.post('/api/control/wheel/learn', requireLocal, async (_req, res) => {
+  try {
+    const found = await wheel.learn(15000);
+    saveEnv({
+      VOICE_BUTTON: String(found.button),
+      VOICE_BUTTON_DEVICE: found.deviceName,
+      VOICE_BUTTON_DEVICE_ID: String(found.deviceId),
+    });
+    log.info(`[control] voice button: button ${found.button} on ${found.deviceName}`);
+    broadcast({ type: 'status', data: statusPayload() });
+    res.json({ learned: found, state: controlState() });
+  } catch (err) {
+    res.status(400).json({ error: err.message === 'No button pressed' ? 'No button was pressed within 15 seconds' : err.message, state: controlState() });
+  }
+});
+
+app.post('/api/control/wheel/clear', requireLocal, (_req, res) => {
+  wheel.cancelLearn();
+  wheel.setBinding({});
+  saveEnv({ VOICE_BUTTON: null, VOICE_BUTTON_DEVICE: null, VOICE_BUTTON_DEVICE_ID: null });
+  log.info('[control] voice button cleared');
+  broadcast({ type: 'status', data: statusPayload() });
+  res.json(controlState());
+});
+
 app.post('/api/control/shutdown', requireLocal, (_req, res) => {
   res.json({ ok: true });
   log.info('[control] stop requested from the Control Panel');
@@ -578,6 +630,7 @@ let tireTimer = null;
 
 function restartTireTimer() {
   clearInterval(tireTimer);
+  wheel.stop();
   tireTimer = setInterval(runTireAnalysis, config.analysisIntervalMs);
 }
 
@@ -606,6 +659,9 @@ server.listen(config.port, config.host, () => {
   timers.push(setInterval(sampleHistory, config.tireSampleMs));
   restartTireTimer();
   pollTelemetry();
+  wheel.start();
+  const vb = voiceButtonStatus();
+  if (vb.bound) log.info(`Voice button: ${vb.label}${vb.connected ? '' : ' (not connected)'}`);
 
   // --open or --open=/control: open the page in the default browser once listening
   const openArg = process.argv.find((a) => a === '--open' || a.startsWith('--open='));

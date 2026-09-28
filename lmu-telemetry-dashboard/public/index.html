@@ -732,6 +732,7 @@
     if (!lastAnalysis) $('aiSummary').textContent = tireOn ? 'Waiting for the first analysis…' : offText(ai, 'Tire engineer');
     if (!lastStrategy) $('stCall').textContent = stratOn ? 'Waiting for the first completed lap…' : offText(ai, 'Strategist');
     if (ai.totals) updateCost(ai.totals);
+    applyVoiceButton(data.voiceButton);
     if (!ai.enabled && !feedHasContent) {
       $('feedEmpty').textContent = paused
         ? 'The AI is switched off in the Control Panel.'
@@ -886,6 +887,7 @@
         case 'analysis_error': onAnalysisError(msg.data); break;
         case 'voice_reply': onVoiceReply(msg.data); break;
         case 'voice_error': onVoiceError(msg.data); break;
+        case 'ptt': onServerPtt(msg.data); break;
       }
     });
     socket.addEventListener('close', () => {
@@ -1079,9 +1081,34 @@
   wheel.addEventListener('devices', renderPttInfo);
   wheel.start();
 
+  // The server reads the wheel button when one is assigned in the Control Panel.
+  // That works while LMU has focus, so the browser's own gamepad reading is
+  // switched off then (otherwise one press would trigger twice).
+  let serverButton = null;
+
+  function applyVoiceButton(vb) {
+    serverButton = vb && vb.bound ? vb : null;
+    if (serverButton) wheel.stop();
+    else wheel.start();
+    renderPttInfo();
+  }
+
+  function onServerPtt({ down }) {
+    if (down) pttDown();
+    else pttUp();
+  }
+
   function renderPttInfo() {
+    if (serverButton) {
+      $('pttBinding').textContent =
+        `Wheel button: ${serverButton.label}${serverButton.connected ? '' : ' (not connected)'} · works while LMU is focused`;
+      $('pttDevices').textContent = 'Set in the Control Panel (Voice button).';
+      $('pttAssign').style.display = 'none';
+      return;
+    }
+    $('pttAssign').style.display = '';
     const device = settings.pttGamepadId ? settings.pttGamepadName || 'assigned device' : 'any device';
-    $('pttBinding').textContent = `Wheel button: ${device} · button ${settings.pttButton}`;
+    $('pttBinding').textContent = `Wheel button (browser): ${device} · button ${settings.pttButton}`;
     const devices = wheel.devices();
     $('pttDevices').textContent = !wheel.supported
       ? 'This browser can’t read wheels (no Gamepad API).'

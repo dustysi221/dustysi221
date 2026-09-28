@@ -187,6 +187,22 @@
       <div class="note">Estimate per hour of driving with every engineer on. Voice questions add about 1 cent each.</div>
     </section>
 
+    <section class="card" aria-label="Voice button">
+      <h2>Voice button (wheel)</h2>
+      <div class="v small" id="vbStatus" style="display:flex;align-items:center;gap:8px">
+        <span class="dot" id="vbDot"></span><span id="vbText">—</span>
+      </div>
+      <div class="keybox">
+        <button id="vbAssign">Assign button</button>
+        <button id="vbClear" class="danger" style="display:none">Clear</button>
+      </div>
+      <div class="note" id="vbDevices"></div>
+      <div class="note">
+        Hold this button to talk to the engineer. It’s read by the server, so it works while LMU is the active
+        window. Button numbers match Windows’ “Set up USB game controllers”.
+      </div>
+    </section>
+
     <section class="card" aria-label="Telemetry source">
       <h2>Telemetry source</h2>
       <div class="segmented" role="group" aria-label="Telemetry source">
@@ -297,11 +313,45 @@
     fillSelect('tireIntervalSec', s.options.tireIntervalsSec, ai.tireIntervalSec, (v) => `${v} seconds`);
     renderEstimate(ai.model, ai.tireIntervalSec, s.engineers, ai.master && ai.hasKey);
 
+    // Voice button
+    renderWheel(s.wheel);
+
     // Telemetry
     $('srcGame').setAttribute('aria-pressed', t.source === 'game');
     $('srcSim').setAttribute('aria-pressed', t.source === 'simulator');
     $('srcGame').title = t.gameAvailable ? '' : 'Only on the Windows PC running LMU';
     fillSelect('mockSpeed', s.options.mockSpeeds, t.mockSpeed, (v) => (v === 1 ? 'Real time' : `${v}× faster`));
+  }
+
+  let learning = false;
+  function renderWheel(w) {
+    if (!w) return;
+    const dot = $('vbDot');
+    if (!w.supported) {
+      dot.className = 'dot';
+      $('vbText').textContent = 'Only available on the Windows PC running LMU.';
+      $('vbAssign').disabled = true;
+      $('vbClear').style.display = 'none';
+      $('vbDevices').textContent = '';
+      return;
+    }
+    if (!learning) {
+      $('vbAssign').disabled = false;
+      $('vbAssign').textContent = w.binding ? 'Change button' : 'Assign button';
+    }
+    $('vbClear').style.display = w.binding ? '' : 'none';
+    if (w.binding) {
+      dot.className = 'dot ' + (w.pressed ? 'good' : w.connected ? 'watch' : 'bad');
+      $('vbText').textContent =
+        `Button ${w.binding.button} on ${w.binding.deviceName || 'controller'}` +
+        (w.pressed ? ' · PRESSED' : w.connected ? ' · ready' : ' · not connected');
+    } else {
+      dot.className = 'dot bad';
+      $('vbText').textContent = 'No voice button assigned.';
+    }
+    $('vbDevices').textContent = w.devices.length
+      ? `Controllers found: ${w.devices.map((d) => `${d.name} (${d.buttons} buttons)`).join(', ')}`
+      : 'No controllers found. Is the wheel plugged in?';
   }
 
   function renderEstimate(model, intervalSec, engineers, on) {
@@ -373,6 +423,18 @@
   $('model').addEventListener('change', (e) => post('/api/control', { model: e.target.value }, 'Model changed'));
   $('tireIntervalSec').addEventListener('change', (e) =>
     post('/api/control', { tireIntervalSec: Number(e.target.value) }, `Tire check every ${e.target.value} s`));
+
+  // Voice button
+  $('vbAssign').addEventListener('click', async () => {
+    learning = true;
+    $('vbAssign').disabled = true;
+    $('vbAssign').textContent = 'Press the button on your wheel…';
+    const ok = await post('/api/control/wheel/learn', {}, null);
+    learning = false;
+    if (ok && current?.wheel?.binding) toast(`Voice button: button ${current.wheel.binding.button} on ${current.wheel.binding.deviceName}`);
+    load();
+  });
+  $('vbClear').addEventListener('click', () => post('/api/control/wheel/clear', {}, 'Voice button cleared'));
 
   // Telemetry
   $('srcGame').addEventListener('click', () => post('/api/control', { source: 'game' }, 'Switched to the game'));

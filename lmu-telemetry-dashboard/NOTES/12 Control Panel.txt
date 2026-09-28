@@ -30,6 +30,13 @@ CLAUDE
   Tire check every .. 5 / 10 / 15 / 30 / 60 seconds
   Estimate .......... roughly what it costs per hour with your settings
 
+VOICE BUTTON (WHEEL)
+  Assign button ..... press the wheel button you want for push-to-talk.
+                      The server reads it, so it works while LMU is focused.
+  Shows ............. "Button 10 on <wheel> - ready" / "PRESSED" /
+                      "not connected", and the controllers it can see.
+  Clear ............. remove it.
+
 TELEMETRY SOURCE
   Game (LMU) / Simulator ... switches instantly (clears the session history)
   Simulator speed ........... real time up to 20x faster

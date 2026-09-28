@@ -220,10 +220,14 @@ cent per question, see [API cost](#6-api-cost)).
 2. Click **Enable voice** (top right) and allow the microphone when the browser
    asks. Browsers only allow a page to talk after it has been clicked once, so
    do this each time you open the dashboard.
-3. Open ⚙ → **Voice · push to talk** → **Assign**, then press the wheel button
-   you want to use. Until you assign one, button 0 on any controller is used.
-   If no wheel is listed under "Detected", press any button on the wheel first:
-   browsers only show a controller after it has been used.
+3. In the **Control Panel** (`/control`) → **Voice button (wheel)** → **Assign
+   button**, then press the wheel button you want to use. The server reads that
+   button through Windows' joystick API (`winmm`), so it **works while LMU is
+   the focused window**; you never need to click the dashboard during a race.
+   Button numbers match Windows' *Set up USB game controllers* (`joy.cpl`);
+   buttons 1–32 are supported. Without a server button, the dashboard's own
+   Gamepad API reading (⚙ → Assign) is used, which is only reliable while the
+   dashboard has focus.
 4. Pick an **Engineer voice** and **Speech speed**, and use **Test voice** to
    check it plays through your headset. Edge's "Natural" voices sound best.
 
@@ -244,11 +248,10 @@ strategist whenever their advice changes.
 
 ### Good to know
 
-- **Keep the dashboard window visible** on your second monitor (not minimized).
-  Browsers stop reading controllers for hidden pages. Chrome keeps reading them
-  while another window, like LMU, has focus; if your wheel button does nothing
-  while driving, click the dashboard once and try again, then try the other
-  browser.
+- **Click Enable voice before starting LMU** and keep the dashboard window
+  visible on your second monitor (not minimized). With the button assigned in
+  the Control Panel, the press reaches the dashboard even while LMU has focus;
+  the browser still does the listening and speaking.
 - **Speech recognition needs internet.** Chrome sends the recording to Google's
   speech service and Edge to Microsoft's. It's free, but the audio leaves your PC.
 - The engineer's personality, answer length and radio phrases live in
@@ -277,6 +280,7 @@ the server after a change.
 | `STRATEGY_MAX_INTERVAL_MS` | `180000` | Refresh strategy at least this often on very long laps. |
 | `VOICE_EFFORT` | `low` | Claude effort for spoken answers. `low` answers fastest. |
 | `AI_ENABLED` / `TIRE_ENGINEER` / `STRATEGIST` / `VOICE_ENGINEER` | `true` | On/off switches, normally set from the Control Panel. |
+| `VOICE_BUTTON` / `VOICE_BUTTON_DEVICE` / `VOICE_BUTTON_DEVICE_ID` | — | Push-to-talk wheel button (1–32) and controller, set with **Assign button** in the Control Panel. |
 | `MOCK_SPEED` | `1` | Simulator time multiplier. |
 
 The dashboard's ⚙ menu has per-screen settings (temperature window, psi/kPa,
@@ -430,6 +434,7 @@ wheel button ─► wheel-input.js ─► voice-engine.js (speech → text) ─�
 | `public/control.html` | The Control Panel |
 | `src/envFile.js` | Saves Control Panel changes into `.env` without touching other lines |
 | `public/wheel-input.js` | Push-to-talk wheel button via the Gamepad API, with button learning |
+| `src/wheelButtons.js` | Push-to-talk wheel button read by the server via Windows' joystick API (works in the background) |
 | `public/voice-engine.js` | Web Speech API: speech-to-text while the button is held, text-to-speech for answers |
 | `src/rf2Layout.js` | Plugin memory layout (`#pragma pack(4)` structs) |
 | `src/sharedMemory.js` | Opens `$rFactor2SMMP_Telemetry$` / `$rFactor2SMMP_Scoring$` through kernel32 and copies consistent snapshots |
@@ -479,6 +484,7 @@ WebSocket `ws://localhost:3000/telemetry`: every message is `{ "type", "data" }`
 | `analysis_error` | a Claude call failed | `{ source, message, at }` |
 | `voice_reply` | answer to your `voice_query` | `{ id, question, reply, lap, latencyMs, … }` |
 | `voice_error` | a voice question failed | `{ id, message, busy }` |
+| `ptt` | the Control Panel voice button was pressed/released | `{ down }` |
 | `pong` | reply to `{ "type": "ping" }` | `{ at }` |
 
 Send `{ "type": "requestAnalysis" }` or `{ "type": "requestStrategy" }` to run

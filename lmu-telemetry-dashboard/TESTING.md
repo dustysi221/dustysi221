@@ -222,8 +222,12 @@ Drive 3–4 clean laps.
 
 ### 4f. Voice while driving
 
-With the dashboard visible on your second monitor and LMU focused, hold your
-assigned wheel button and ask *"How are my tires?"* or *"When do I pit?"*.
+1. In the Control Panel → **Voice button (wheel)** → **Assign button**, press
+   your wheel button. It should show *"Button N on <wheel> · ready"*, and
+   *PRESSED* while you hold it.
+2. Click **Enable voice** on the dashboard, then start LMU (LMU is now the
+   focused window; don't click the dashboard again).
+3. Hold the wheel button and ask *"How are my tires?"* or *"When do I pit?"*.
 
 - [ ] The answer is spoken in your headset without leaving the game.
 - [ ] It uses your real numbers (fuel per lap, laps left, gaps).
