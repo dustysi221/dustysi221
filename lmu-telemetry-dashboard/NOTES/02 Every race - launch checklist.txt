@@ -1,0 +1,56 @@
+02 EVERY RACE - LAUNCH CHECKLIST
+================================
+
+BEFORE YOU DRIVE
+----------------
+[ ] 1. Double-click "Start Dashboard.bat" in
+       C:\Users\pkim5\dustysi221\lmu-telemetry-dashboard
+       - A black window opens. Leave it open the whole session.
+       - The dashboard opens in your default browser (http://localhost:3000).
+         Use Chrome or Edge; if it opened in Firefox, paste the address
+         into Chrome or Edge instead.
+       - The black window should say "Telemetry source: rf2".
+       - If it says "Claude tire analysis: ..." the AI is on.
+         If it says "Claude analysis disabled", your key is missing (see 03).
+
+       (Manual way instead of the .bat: open PowerShell and type
+            cd $HOME\dustysi221\lmu-telemetry-dashboard
+            node server.js
+        then open http://localhost:3000 yourself.)
+
+[ ] 2. Put the browser on your second monitor. Press F11 for full screen.
+       Keep it VISIBLE (not minimized) - needed for the wheel button.
+
+[ ] 3. Click "Enable voice" (top right) -> allow the microphone.
+       You must do this every time the page is opened or refreshed.
+
+[ ] 4. The status pill says "Waiting for LMU". That's normal until you drive.
+
+IN THE GAME
+-----------
+[ ] 5. Start LMU and a session. Drive out of the garage.
+[ ] 6. The pill turns green: "Live". Tires and gauges start moving.
+[ ] 7. Tire engineer reports within a few seconds.
+       Strategist reports after your first clean lap.
+[ ] 8. Hold your wheel button to ask the engineer something (see 04).
+
+WHAT THE DASHBOARD SHOWS
+------------------------
+- Four tires (as on the car): temperature of the outer / middle / inner edge,
+  colored cold -> optimal -> overheating; pressure in psi; wear %; core and
+  brake temperature. A tire the AI is worried about gets an orange/red outline.
+- Right side: speed, gear, RPM, current/last/best lap, fuel and laps of fuel.
+- Bottom: Tire engineer | Strategist | Engineer radio (the message feed).
+- The gear icon (top right) opens settings: temperature window, psi/kPa,
+  km/h/mph, wheel button, voice.
+
+DURING THE SESSION
+------------------
+- Pausing the game dims the dashboard ("Paused"). It recovers by itself.
+- "Analyze now" = fresh tire check. "Update" = fresh strategy call.
+- The Engineer radio header shows how many AI calls and the cost so far.
+
+WHEN YOU'RE DONE
+----------------
+[ ] Close the black window (or click it and press Ctrl+C).
+    This stops all AI calls, so nothing more is charged.

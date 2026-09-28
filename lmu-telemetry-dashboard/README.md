@@ -141,6 +141,13 @@ LMU loads a plugin only when it is enabled in
 
 ## 3. Running it
 
+**Easiest:** double-click **`Start Dashboard.bat`** in the project folder (or
+**`Start Simulator.bat`** to test without the game, **`Update Dashboard.bat`** to
+get the latest version). Plain-language notes for every step are in the
+**`NOTES`** folder, starting with `00 START HERE.txt`.
+
+Or by hand:
+
 1. **Start the server** in the `lmu-telemetry-dashboard` folder:
 
    ```powershell

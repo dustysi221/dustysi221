@@ -1,0 +1,48 @@
+LMU TELEMETRY DASHBOARD - NOTES
+================================
+
+Your project folder:
+  C:\Users\pkim5\dustysi221\lmu-telemetry-dashboard
+
+What it is:
+  A dashboard for your second monitor while you drive Le Mans Ultimate.
+  It shows your tires, speed, fuel and lap times live, and has an AI race
+  engineer (Claude) that:
+    - checks your tires every few seconds (Tire engineer)
+    - makes pit and fuel calls after every lap (Strategist)
+    - answers questions you ask out loud with a wheel button (Voice engineer)
+
+-----------------------------------------------------------------
+QUICK START (every time you race)
+-----------------------------------------------------------------
+1. Double-click  "Start Dashboard.bat"  in the project folder.
+   A black window opens (leave it open) and the dashboard opens in your
+   browser at http://localhost:3000
+   It opens in your DEFAULT browser. If that's Firefox, copy the address
+   into Chrome or Edge instead (voice doesn't work in Firefox).
+2. Move the browser window to your second monitor.
+3. Click "Enable voice" (top right of the dashboard) and allow the microphone.
+4. Start LMU and drive out of the garage. The pill at the top right turns
+   green and says "Live".
+5. Hold your wheel button to talk to the engineer.
+6. When you're done, close the black window.
+
+To test without the game: double-click "Start Simulator.bat" instead.
+To get the newest version: double-click "Update Dashboard.bat".
+
+-----------------------------------------------------------------
+THE NOTES IN THIS FOLDER
+-----------------------------------------------------------------
+01 One-time setup ........................ install everything (done once)
+02 Every race - launch checklist ......... step by step, every session
+03 AI engineers (tire + strategy) ........ turning the AI on and what it shows
+04 Voice engineer ........................ push-to-talk with your wheel
+05 Simulator ............................. testing without the game
+06 Settings reference .................... everything you can put in .env
+07 Costs and money ....................... what the AI costs, how to limit it
+08 Troubleshooting ....................... every problem we've hit and the fix
+09 Updating to the latest version ........ getting new changes
+10 Anti-cheat and safety ................. is it bannable, keeping your key safe
+11 Known issues and next steps ........... what still needs work
+
+More technical detail: README.md and TESTING.md in the project folder.

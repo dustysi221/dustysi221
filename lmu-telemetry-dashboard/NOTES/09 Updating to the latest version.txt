@@ -1,0 +1,30 @@
+09 UPDATING TO THE LATEST VERSION
+=================================
+When new changes are made, get them like this:
+
+EASY WAY
+--------
+1. Close the dashboard (black window).
+2. Double-click "Update Dashboard.bat".
+3. Start the dashboard again.
+
+MANUAL WAY
+----------
+In PowerShell:
+    cd $HOME\dustysi221\lmu-telemetry-dashboard
+    git pull
+    npm install
+Then start the dashboard again and refresh the browser page.
+(Click "Enable voice" again after refreshing.)
+
+IF "git pull" FAILS
+-------------------
+- "not a git repository": you're in the wrong folder (cd as above).
+- "Your local changes would be overwritten": you edited a project file.
+  Your .env is safe (it's never overwritten). For other files, run
+      git stash
+      git pull
+  (git stash puts your edits aside; tell me if you need them back.)
+- "There is no tracking information": run
+      git checkout claude/kind-shannon-g0iy1c
+      git pull

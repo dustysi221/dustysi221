@@ -1,0 +1,41 @@
+07 COSTS AND MONEY
+==================
+The AI is REAL MONEY. Every AI call is charged to your Anthropic account.
+
+HOW YOU PAY
+-----------
+- You add credit at https://console.anthropic.com (Billing).
+- Calls are taken from that balance. When it runs out, the AI stops (the
+  dashboard itself keeps working).
+- A Claude.ai subscription (Pro/Max) does NOT cover it. The API is separate.
+
+WHAT IS FREE
+------------
+- The dashboard, telemetry, simulator.
+- Voice: speech-to-text and text-to-speech (built into the browser).
+
+WHAT COSTS MONEY (estimates, per hour of driving)
+-------------------------------------------------
+  Opus 5, tire check every 5 s (default)   about $23 / hour
+  Opus 5, every 15 s                       about $8 / hour
+  Sonnet 5, every 5 s                      about $9 / hour
+  Sonnet 5, every 10 s                     about $5 / hour
+  Haiku 4.5, every 5 s                     about $3.50 / hour
+  Voice question                           about 1 cent each (Opus), less with Sonnet
+  Strategist                               about $0.50-1.30 / hour
+These are estimates (+/- 50%).
+
+The AI only runs while the dashboard is open AND you're on track (not
+paused, not in menus). Close the black window when done = no more cost.
+
+SEE THE REAL COST
+-----------------
+- Dashboard: the Engineer radio header shows calls and cost this session
+  (an estimate).
+- Exact charges: https://console.anthropic.com -> Usage.
+
+PROTECT YOURSELF
+----------------
+- Only add as much credit as you're happy to spend. Keep auto-reload OFF.
+- Set a spend limit in the Console.
+- Use ANALYSIS_MODEL=claude-sonnet-5 and/or ANALYSIS_INTERVAL_MS=15000.

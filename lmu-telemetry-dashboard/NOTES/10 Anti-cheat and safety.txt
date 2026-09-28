@@ -1,0 +1,31 @@
+10 ANTI-CHEAT AND SAFETY
+========================
+
+IS IT BANNABLE?
+---------------
+No official Studio 397 statement was found either way. Risk looks LOW:
+- SimHub, CrewChief, TinyPedal and many LMU overlay apps read telemetry the
+  same way.
+- The dashboard only READS data. It never changes the game or sends inputs.
+- The AI runs outside the game and only sees numbers.
+
+TO STAY SAFE
+------------
+- In CustomPluginVariables.JSON keep EnableHWControlInput, EnableDirectMemoryAccess,
+  EnableRulesControlInput and EnableWeatherControlInput at 0.
+- Test in offline practice first, not ranked online races.
+- In leagues, ask the admins whether the shared memory plugin is allowed.
+- Only Studio 397 can guarantee it, and rules can change.
+
+KEEP YOUR API KEY SAFE
+----------------------
+- The key is in the .env file. Never share the file or screenshots of it.
+- The .env file is never uploaded to GitHub (it's excluded).
+- If you think the key leaked: https://console.anthropic.com -> API Keys ->
+  delete it and create a new one, then update .env.
+
+VOICE PRIVACY
+-------------
+Your spoken questions are sent to Google (Chrome) or Microsoft (Edge) to be
+turned into text. The questions and live data are sent to Anthropic for the
+answer.

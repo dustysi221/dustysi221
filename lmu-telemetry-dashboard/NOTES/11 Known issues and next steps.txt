@@ -1,0 +1,37 @@
+11 KNOWN ISSUES AND NEXT STEPS
+==============================
+
+1. TIRE TEMPERATURES DON'T MATCH LMU  (open)
+   The dashboard shows the tread SURFACE temperature. LMU may show a
+   different reading (inner layer or carcass), or show Fahrenheit.
+   To fix it, send:
+     - a screenshot of http://localhost:3000/api/snapshot (the "tires" part)
+       after 2-3 laps on track
+     - the tire temperatures LMU shows at the same moment, and whether they
+       are in C or F
+   Each tire has three readings in the snapshot: "temps" (surface),
+   "innerLayerTemps" and "carcassTempC". The one that matches LMU will
+   become the dashboard's reading.
+   Until then, the tire engineer's temperature advice isn't reliable.
+
+2. WHEEL BUTTON WHILE LMU HAS FOCUS  (needs testing)
+   Browsers may stop reading the wheel when another window is focused.
+   Test: dashboard visible but NOT clicked, hold the wheel button, ask a
+   question. Report whether it worked in Chrome and/or Edge.
+
+3. LMU BUILT-IN TELEMETRY  (possible future change)
+   Newer LMU versions have their own built-in telemetry output. If the rF2
+   plugin ever stops working after an LMU update, the dashboard can be
+   switched to LMU's built-in data (no plugin needed).
+
+4. PIT LOSS AND WEAR LIMIT ARE ESTIMATES
+   PIT_LOSS_SEC (35) and TIRE_WEAR_LIMIT_PERCENT (75) are guesses.
+   Set them per track/car once you know the real values (see 06).
+
+DONE SO FAR
+-----------
+- Live dashboard (tires, speed, RPM, fuel, laps) on a second monitor
+- Simulator for testing without the game
+- Tire engineer, strategist, short radio messages
+- Voice engineer with wheel push-to-talk
+- Fixed: server couldn't find the game (wrong shared memory name)

@@ -1,0 +1,95 @@
+01 ONE-TIME SETUP
+=================
+You only do this once. (You've already done most of it.)
+
+-----------------------------------------------------------------
+1. INSTALL THESE PROGRAMS
+-----------------------------------------------------------------
+- Node.js 20 or newer (you have v24, which is fine)
+    https://nodejs.org  -> download the "LTS" Windows Installer
+    Leave "Automatically install the necessary tools" UNticked.
+- Git
+    https://git-scm.com/download/win
+- Chrome or Edge (Edge is already on Windows)
+- Le Mans Ultimate (Steam)
+
+After installing, close and reopen PowerShell before using them.
+
+-----------------------------------------------------------------
+2. OPEN POWERSHELL THE RIGHT WAY
+-----------------------------------------------------------------
+- Press the Windows key, type PowerShell, open "Windows PowerShell".
+- Do NOT use "Run as administrator" (unless you also run LMU as admin).
+- Do NOT open "Node.js" from the Start menu. That is a different window that
+  only understands JavaScript (the one with the > prompt).
+- The right window shows a prompt like:   PS C:\Users\pkim5>
+  You type only what comes AFTER the ">". Never type the "PS C:\...>" part.
+
+-----------------------------------------------------------------
+3. ALLOW NPM TO RUN (one time)
+-----------------------------------------------------------------
+If you ever see "running scripts is disabled on this system", run:
+
+    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+Type Y if asked. (Alternative: type npm.cmd instead of npm every time.)
+
+-----------------------------------------------------------------
+4. DOWNLOAD THE PROJECT (already done)
+-----------------------------------------------------------------
+    cd $HOME
+    git clone https://github.com/dustysi221/dustysi221.git
+    cd dustysi221
+    git fetch origin
+    git checkout claude/kind-shannon-g0iy1c
+    cd lmu-telemetry-dashboard
+    npm install
+    npm test
+
+npm test should end with "# fail 0".
+
+-----------------------------------------------------------------
+5. INSTALL THE LMU PLUGIN (already done)
+-----------------------------------------------------------------
+The dashboard reads the game through a free plugin.
+
+a) Find the LMU folder: Steam -> right-click Le Mans Ultimate -> Manage ->
+   Browse local files. Usually:
+   C:\Program Files (x86)\Steam\steamapps\common\Le Mans Ultimate
+
+b) Open the "Plugins" folder. If rFactor2SharedMemoryMapPlugin64.dll is not
+   there, download it from
+   https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin/releases
+   and copy rFactor2SharedMemoryMapPlugin64.dll into Plugins.
+   Right-click the DLL -> Properties -> tick "Unblock" if you see it -> OK.
+
+c) Start LMU once, reach the main menu, quit completely.
+
+d) With LMU CLOSED, open in Notepad:
+   Le Mans Ultimate\UserData\player\CustomPluginVariables.JSON
+   The plugin entry must look like this (note the space before "Enabled"):
+
+   "rFactor2SharedMemoryMapPlugin64.dll": {
+     " Enabled": 1,
+     "DebugISIInternals": 0,
+     "DebugOutputLevel": 0,
+     "DebugOutputSource": 1,
+     "DedicatedServerMapGlobally": 0,
+     "EnableDirectMemoryAccess": 0,
+     "EnableHWControlInput": 0,
+     "EnableRulesControlInput": 0,
+     "EnableWeatherControlInput": 0,
+     "UnsubscribedBuffersMask": 160
+   }
+
+   - EnableHWControlInput must be 0 (the dashboard only reads data).
+   - Delete any misspelled extra entry (you had "rF2SharedMemeryMapPlugin.dll";
+     remove that whole block).
+   - Every entry except the last ends with "}," and the last with "}".
+
+e) In LMU: Settings -> Gameplay -> "Enable Plugins" -> ON (if you have it).
+
+-----------------------------------------------------------------
+6. ADD YOUR CLAUDE API KEY (for the AI)
+-----------------------------------------------------------------
+See "03 AI engineers (tire + strategy).txt", section 1.

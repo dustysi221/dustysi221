@@ -1,0 +1,35 @@
+05 SIMULATOR (TESTING WITHOUT THE GAME)
+=======================================
+A fake car that drives a 90-minute race with 5 AI rivals and one pit stop
+(around lap 30). Everything on the dashboard works with it, including the AI
+and voice. The AI still costs money in the simulator.
+
+START IT
+--------
+Double-click "Start Simulator.bat".
+(Manual way: in PowerShell in the project folder, type  npm run mock )
+
+The black window says "Telemetry source: mock". The dashboard pill says
+"Live - simulator".
+
+MAKE IT FASTER
+--------------
+Laps normally take 100 seconds. To make it 10x faster:
+  1. Close the black window.
+  2. In PowerShell in the project folder:   Add-Content .env "MOCK_SPEED=10"
+  3. Start the simulator again. The window says "(x10 speed)".
+REMOVE that line again before racing (notepad .env, delete it, Save).
+It only affects the simulator, but it's easy to forget.
+
+Faster = more strategy calls per minute = more cost.
+
+WHAT TO CHECK
+-------------
+- Speed, gear, RPM, tires all moving.
+- Fuel per lap about 2.9 L after two laps.
+- Strategist mentions a stop around lap 29-30, fuel only.
+- Voice: hold V, ask "How much fuel am I using?" -> about 2.9 liters a lap.
+
+STOP IT
+-------
+Close the black window.

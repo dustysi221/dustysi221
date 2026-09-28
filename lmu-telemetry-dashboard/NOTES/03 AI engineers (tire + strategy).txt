@@ -1,0 +1,73 @@
+03 AI ENGINEERS (TIRE + STRATEGY)
+=================================
+
+1. TURN THE AI ON (one time)
+----------------------------
+a) Get a key: https://console.anthropic.com
+   -> add credit (Billing) -> API Keys -> Create Key.
+   It starts with sk-ant-. Copy it.
+
+b) In PowerShell, go to the project folder:
+       cd $HOME\dustysi221\lmu-telemetry-dashboard
+
+c) Create the settings file (paste YOUR key in the first line):
+       Set-Content .env "CLAUDE_API_KEY=sk-ant-PASTE-YOUR-KEY-HERE"
+       Add-Content .env "ANALYSIS_MODEL=claude-sonnet-5"
+
+   Use these exact commands. Notepad can secretly save the file as
+   ".env.txt", which doesn't work.
+   To check it:     Get-Content .env
+   To edit later:   notepad .env      (then Save, not Save As)
+
+d) Restart the dashboard (close the black window, double-click
+   "Start Dashboard.bat" again). The black window should now say
+   "Claude tire analysis: claude-sonnet-5 ...".
+   The pill at the top right of the dashboard says "AI sonnet-5".
+
+NEVER share the .env file or a screenshot of it. It contains your key.
+
+2. TIRE ENGINEER (bottom left)
+------------------------------
+- Runs every 5 seconds while the dashboard is open and you're on track.
+- Shows: GOOD / FAIR / CRITICAL, one short radio line, the pressure change
+  to make at the next stop, and the pit window.
+- Tires it's worried about get an outline and a short note on the car.
+- "Analyze now" asks for a fresh check immediately.
+
+3. STRATEGIST (bottom middle)
+-----------------------------
+- Runs after every clean lap and after every pit stop.
+- Shows: confidence (HIGH / MEDIUM / LOW), one radio line (for example
+  "Box end of lap 30, fuel only. Tires make the finish."), fuel and what to
+  do at the next stop.
+- Waits for your first clean lap (it needs fuel and wear data).
+- "Update" asks for a fresh call immediately.
+- It knows: fuel per lap, last lap you can pit, laps left, tire wear trend,
+  and the cars ahead and behind you in your class.
+
+4. ENGINEER RADIO (bottom right)
+--------------------------------
+- The message feed. A new message only appears when the advice CHANGES.
+  Otherwise the last message updates and shows a count like "x5".
+- TE = tire engineer, ST = strategist, YOU / ENG = voice questions and answers.
+
+5. MESSAGES ARE SHORT ON PURPOSE
+--------------------------------
+Every engineer message is 1-2 sentences (about 25 words max) so you can read
+it at a glance. The full detail is still available at:
+    http://localhost:3000/api/tire-analysis
+    http://localhost:3000/api/strategy
+
+6. SETTINGS THAT MATTER (in .env, restart after changing)
+---------------------------------------------------------
+    ANALYSIS_MODEL=claude-sonnet-5     cheaper (about $9/hour); default is claude-opus-5 (about $23/hour)
+    ANALYSIS_INTERVAL_MS=15000         tire check every 15 s instead of 5 s (cheaper)
+    PIT_LOSS_SEC=35                    time lost per pit stop at this track (set it per track)
+    TIRE_OPTIMAL_MIN_C=75 / TIRE_OPTIMAL_MAX_C=100   tire temperature window
+See "06 Settings reference.txt" for everything.
+
+7. IMPORTANT
+------------
+Tire temperatures currently don't match what LMU shows (see 11), so treat
+the tire engineer's temperature advice with caution for now. Fuel, strategy
+and rival info are not affected.

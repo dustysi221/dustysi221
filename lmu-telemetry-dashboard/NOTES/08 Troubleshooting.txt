@@ -1,0 +1,100 @@
+08 TROUBLESHOOTING
+==================
+Every problem we've run into so far, and the fix.
+
+POWERSHELL / INSTALL
+--------------------
+"Uncaught SyntaxError: Unexpected identifier" when typing commands
+  -> You're in the Node.js window (the > prompt), not PowerShell.
+     Press Ctrl+D, close it, open "Windows PowerShell" instead.
+
+"PS : Cannot find a process with the name ..."
+  -> You typed the prompt. Type only what comes after "PS C:\...>".
+
+"running scripts is disabled on this system" (npm)
+  -> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   (type Y)
+     or type npm.cmd instead of npm.
+
+"pathspec 'claude/kind-shannon-g0iy1c' did not match"
+  -> git fetch origin   then   git checkout claude/kind-shannon-g0iy1c
+
+"'git' is not recognized"
+  -> Install Git (git-scm.com), then close and reopen PowerShell.
+
+"Cannot find path ... because it does not exist"
+  -> You're in the wrong folder:   cd $HOME\dustysi221\lmu-telemetry-dashboard
+
+"Remove-Item : Cannot find path ... .env"
+  -> Harmless: there was no .env file to delete.
+
+"Port 3000 is already in use"
+  -> The dashboard is already running in another window, or another app
+     uses 3000. Close the other black window, or set PORT=3001 in .env and
+     open http://localhost:3001
+
+GAME CONNECTION
+---------------
+Stays on "Waiting for LMU" while driving
+  1. Plugin DLL in Le Mans Ultimate\Plugins\ (exact name
+     rFactor2SharedMemoryMapPlugin64.dll).
+  2. " Enabled": 1 in UserData\player\CustomPluginVariables.JSON
+     (edit only with LMU closed).
+  3. LMU Settings -> Gameplay -> Enable Plugins ON.
+  4. Right-click the DLL -> Properties -> Unblock.
+  5. LMU and PowerShell both normal (not admin), or both admin.
+  6. Update the dashboard (see 09) - an earlier bug caused exactly this and
+     was fixed.
+  The black window shows a Windows error number at the end of the waiting
+  line. "Win32 error 2" = the game isn't publishing data (plugin not loaded).
+
+Pill says "Paused" and the dashboard is dim
+  -> Hover the pill. "no player car on track" = in menus/garage/replay;
+     "telemetry paused" = game paused. Drive out / unpause.
+
+Numbers look crazy (-273, all zeros, garbled names)
+  -> Plugin version doesn't match. Send a screenshot of
+     http://localhost:3000/api/snapshot
+
+Tire temperatures don't match LMU
+  -> Known issue, see 11.
+
+AI
+--
+"AI off" / "Claude analysis disabled"
+  -> No key. See 03 section 1. The .env must be in the project folder
+     (Get-Content .env should show your key line).
+
+"Invalid Claude API key"
+  -> Copy the key again (starts with sk-ant-, no spaces or quotes).
+
+"Claude API error 400/404" mentioning the model
+  -> Set ANALYSIS_MODEL=claude-sonnet-5
+
+"rate limit hit"
+  -> ANALYSIS_INTERVAL_MS=15000 or a smaller model.
+
+Strategist says "Waiting for the first completed lap"
+  -> Normal until your first clean lap. "Update" forces a call.
+
+Engineer talks too much
+  -> Already fixed: 1-2 sentences max. Update (see 09) if you still see
+     long messages.
+
+DASHBOARD
+---------
+"Server offline - retrying"
+  -> The black window was closed or crashed. Start it again.
+
+Dashboard doesn't open
+  -> Open http://localhost:3000 yourself in Chrome/Edge.
+
+VOICE
+-----
+See "04 Voice engineer.txt", section 6.
+
+WHAT TO SEND IF YOU NEED HELP
+-----------------------------
+1. A screenshot/copy of the black window's text.
+2. The contents of http://localhost:3000/api/snapshot while on track.
+3. A screenshot of the dashboard.
+NEVER send the .env file (it has your key).

@@ -1,0 +1,46 @@
+06 SETTINGS REFERENCE (.env FILE)
+=================================
+The .env file is in the project folder. Edit it with:   notepad .env
+(Save, not Save As.) Restart the dashboard after any change.
+One setting per line, like:   ANALYSIS_MODEL=claude-sonnet-5
+
+SETTING                     DEFAULT          WHAT IT DOES
+-------                     -------          ------------
+CLAUDE_API_KEY              (none)           Your Claude key. Without it the AI is off.
+ANALYSIS_MODEL              claude-opus-5    AI model. claude-sonnet-5 is cheaper,
+                                             claude-haiku-4-5 cheapest.
+ANALYSIS_INTERVAL_MS        5000             Tire check every N milliseconds.
+                                             15000 = every 15 s. Biggest cost lever.
+ANALYSIS_EFFORT             low              How hard the AI thinks: low..max. Higher =
+                                             slower and pricier.
+VOICE_EFFORT                low              Same, for voice answers. low = fastest.
+ANALYSIS_FALLBACKS          true             Retry on a fallback model if Claude declines.
+PIT_LOSS_SEC                35               Seconds lost per pit stop. Set per track.
+FUEL_RESERVE_LAPS           1                Extra laps of fuel to carry to the finish.
+TIRE_OPTIMAL_MIN_C          75               Tire window start (Celsius).
+TIRE_OPTIMAL_MAX_C          100              Tire window end (Celsius).
+TIRE_WEAR_LIMIT_PERCENT     75               Wear % where a tire counts as done.
+STRATEGY_MAX_INTERVAL_MS    180000           Strategy refresh at least this often.
+HOST                        127.0.0.1        0.0.0.0 = let a tablet/phone on your Wi-Fi
+                                             open the dashboard (allow Node.js in the
+                                             Windows Firewall, private networks).
+PORT                        3000             Change if 3000 is taken. The .bat files
+                                             always open port 3000.
+TELEMETRY_SOURCE            auto             auto / rf2 (game) / mock (simulator).
+MOCK_SPEED                  1                Simulator speed. Remove before racing.
+
+RECOMMENDED EVERYDAY .env
+-------------------------
+    CLAUDE_API_KEY=sk-ant-...
+    ANALYSIS_MODEL=claude-sonnet-5
+    PIT_LOSS_SEC=35
+
+CHEAPER
+-------
+    ANALYSIS_MODEL=claude-sonnet-5
+    ANALYSIS_INTERVAL_MS=15000
+
+IN THE BROWSER (gear icon, remembered by the browser)
+------------------------------------------------------
+Tire temperature window, psi / kPa, km/h / mph, push-to-talk wheel button,
+engineer voice, speech speed, read out new engineer calls, test voice.
