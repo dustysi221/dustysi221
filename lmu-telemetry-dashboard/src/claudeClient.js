@@ -32,6 +32,11 @@ class ClaudeClient {
     return this.sdk !== null;
   }
 
+  /** Swap the API key at runtime (Control Panel). An empty key turns the client off. */
+  setApiKey(apiKey) {
+    this.sdk = apiKey ? new Anthropic({ apiKey, timeout: 60_000, maxRetries: 1 }) : null;
+  }
+
   /**
    * Sends one request whose answer must match `schema`.
    * @param history  earlier turns ({ role, content } plain-text messages) to send before `payload`

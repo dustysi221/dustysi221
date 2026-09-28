@@ -3,6 +3,11 @@
 
 1. TURN THE AI ON (one time)
 ----------------------------
+EASIEST: double-click "Control Panel.bat", paste your key in the Claude box
+and click "Save key". Done, no restart needed. (Get a key as in a) below.)
+
+Or the manual way:
+
 a) Get a key: https://console.anthropic.com
    -> add credit (Billing) -> API Keys -> Create Key.
    It starts with sk-ant-. Copy it.
@@ -58,7 +63,9 @@ it at a glance. The full detail is still available at:
     http://localhost:3000/api/tire-analysis
     http://localhost:3000/api/strategy
 
-6. SETTINGS THAT MATTER (in .env, restart after changing)
+6. SETTINGS THAT MATTER
+(Model, tire check interval and every on/off switch are also in the
+Control Panel, which applies them instantly. In .env, restart after changing.)
 ---------------------------------------------------------
     ANALYSIS_MODEL=claude-sonnet-5     cheaper (about $9/hour); default is claude-opus-5 (about $23/hour)
     ANALYSIS_INTERVAL_MS=15000         tire check every 15 s instead of 5 s (cheaper)

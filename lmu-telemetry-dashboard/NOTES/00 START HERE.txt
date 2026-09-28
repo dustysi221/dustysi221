@@ -13,6 +13,13 @@ What it is:
     - answers questions you ask out loud with a wheel button (Voice engineer)
 
 -----------------------------------------------------------------
+EASIEST: THE CONTROL PANEL
+-----------------------------------------------------------------
+Double-click "Control Panel.bat". One page with on/off switches for the AI,
+each engineer, game vs simulator, the AI model, your API key, and a button
+to stop everything. See "12 Control Panel.txt".
+
+-----------------------------------------------------------------
 QUICK START (every time you race)
 -----------------------------------------------------------------
 1. Double-click  "Start Dashboard.bat"  in the project folder.
@@ -44,5 +51,6 @@ THE NOTES IN THIS FOLDER
 09 Updating to the latest version ........ getting new changes
 10 Anti-cheat and safety ................. is it bannable, keeping your key safe
 11 Known issues and next steps ........... what still needs work
+12 Control Panel ......................... turn everything on/off in one place
 
 More technical detail: README.md and TESTING.md in the project folder.

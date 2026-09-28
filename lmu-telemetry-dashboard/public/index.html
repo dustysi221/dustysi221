@@ -79,6 +79,11 @@
   .pill[data-state="paused"] .dot { background: var(--watch); }
   .pill[data-state="waiting"] .dot, .pill[data-state="offline"] .dot { background: var(--critical); }
   .icon-btn { padding: 4px 9px; line-height: 1; font-size: 16px; }
+  .control-link {
+    font-size: 12px; padding: 6px 12px; color: var(--text); text-decoration: none;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .control-link:hover { border-color: var(--faint); }
 
   /* ---------- main ---------- */
   main {
@@ -345,6 +350,7 @@
   <span class="pill" id="connPill" data-state="offline"><span class="dot"></span><span id="connText">Connecting…</span></span>
   <span class="pill" id="aiPill" title="Claude analysis"><span class="dot"></span><span id="aiText">AI —</span></span>
   <button class="mic-btn" id="micBtn" data-state="off" title="Push to talk: hold your wheel button, hold V, or hold this button"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg><span id="micText">Enable voice</span></button>
+  <a class="icon-btn control-link" href="/control" target="lmu-control" title="Control Panel: turn the AI, engineers and simulator on or off">Control</a>
   <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">⚙</button>
 </header>
 
@@ -711,17 +717,32 @@
 
     const ai = data.ai || {};
     const aiPill = $('aiPill');
-    aiPill.dataset.state = ai.enabled ? (ai.lastError ? 'paused' : 'live') : 'offline';
-    $('aiText').textContent = ai.enabled ? `AI ${ai.model?.replace(/^claude-/, '') ?? ''}` : 'AI off';
+    const paused = ai.hasKey && ai.master === false;
+    aiPill.dataset.state = ai.enabled ? (ai.lastError ? 'paused' : 'live') : paused ? 'paused' : 'offline';
+    $('aiText').textContent = ai.enabled ? `AI ${ai.model?.replace(/^claude-/, '') ?? ''}` : paused ? 'AI paused' : 'AI off';
     aiPill.title = ai.enabled
       ? `Claude ${ai.model} · effort ${ai.effort} · every ${Math.round(ai.intervalMs / 1000)}s`
-      : 'Set CLAUDE_API_KEY in .env and restart the server to enable Claude analysis';
-    $('analyzeBtn').disabled = !ai.enabled || !socketOpen;
-    $('strategyBtn').disabled = !ai.enabled || !socketOpen;
+      : paused
+        ? 'AI is switched off in the Control Panel'
+        : 'Add your Claude API key in the Control Panel (or CLAUDE_API_KEY in .env) to enable the AI';
+    const tireOn = ai.enabled && ai.tireEngineer !== false;
+    const stratOn = ai.enabled && ai.strategist !== false;
+    $('analyzeBtn').disabled = !tireOn || !socketOpen;
+    $('strategyBtn').disabled = !stratOn || !socketOpen;
+    if (!lastAnalysis) $('aiSummary').textContent = tireOn ? 'Waiting for the first analysis…' : offText(ai, 'Tire engineer');
+    if (!lastStrategy) $('stCall').textContent = stratOn ? 'Waiting for the first completed lap…' : offText(ai, 'Strategist');
     if (ai.totals) updateCost(ai.totals);
     if (!ai.enabled && !feedHasContent) {
-      $('feedEmpty').textContent = 'Claude analysis is off. Add CLAUDE_API_KEY to .env and restart the server.';
+      $('feedEmpty').textContent = paused
+        ? 'The AI is switched off in the Control Panel.'
+        : 'Claude analysis is off. Add your API key in the Control Panel.';
     }
+  }
+
+  function offText(ai, name) {
+    if (!ai.hasKey) return `${name} needs an API key (Control Panel)`;
+    if (ai.master === false) return 'AI switched off (Control Panel)';
+    return `${name} switched off (Control Panel)`;
   }
 
   function updateCost(totals) {
@@ -978,8 +999,11 @@
       showBar('error', 'Server offline', { heard: text, reply: 'The dashboard isn’t connected to the server.', hideAfterMs: 5000 });
       return;
     }
-    if (!status?.ai?.enabled) {
-      showBar('error', 'Claude is off', { heard: text, reply: 'Add CLAUDE_API_KEY to .env and restart the server.', hideAfterMs: 6000 });
+    if (!status?.ai?.enabled || status.ai.voiceEngineer === false) {
+      const reply = !status?.ai?.hasKey
+        ? 'Add your Claude API key in the Control Panel.'
+        : 'The voice engineer is switched off in the Control Panel.';
+      showBar('error', 'Engineer off', { heard: text, reply, hideAfterMs: 6000 });
       return;
     }
     const id = ++voiceQueryId;

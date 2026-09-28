@@ -29,6 +29,14 @@ PORT                        3000             Change if 3000 is taken. The .bat f
 TELEMETRY_SOURCE            auto             auto / rf2 (game) / mock (simulator).
 MOCK_SPEED                  1                Simulator speed. Remove before racing.
 
+AI_ENABLED                  true             Master AI switch (Control Panel).
+TIRE_ENGINEER               true             Tire engineer on/off (Control Panel).
+STRATEGIST                  true             Strategist on/off (Control Panel).
+VOICE_ENGINEER              true             Voice engineer on/off (Control Panel).
+
+The Control Panel writes these, plus ANALYSIS_MODEL, ANALYSIS_INTERVAL_MS
+and CLAUDE_API_KEY, into .env for you.
+
 RECOMMENDED EVERYDAY .env
 -------------------------
     CLAUDE_API_KEY=sk-ant-...

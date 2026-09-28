@@ -1,5 +1,5 @@
 @echo off
-title LMU Telemetry Dashboard - SIMULATOR
+title LMU Telemetry Dashboard - Control Panel
 cd /d "%~dp0"
 
 where node >nul 2>nul
@@ -22,19 +22,19 @@ if not exist node_modules (
 rem Already running? Then just open the page instead of starting a second copy.
 curl -s -o nul http://localhost:3000/api/health >nul 2>nul
 if not errorlevel 1 (
-  echo The server is already running. Switch to the simulator in the Control Panel.
+  echo The server is already running. Opening the Control Panel...
   start "" http://localhost:3000/control
   timeout /t 3 >nul
   exit /b 0
 )
 
 echo.
-echo  SIMULATOR MODE - a fake car, no game needed
-echo  Dashboard:     http://localhost:3000
+echo  LMU Telemetry Dashboard
 echo  Control Panel: http://localhost:3000/control
+echo  Dashboard:     http://localhost:3000
 echo  Keep this window open. Close it (or use Stop server in the Control Panel) to stop.
 echo.
-node server.js --mock --open
+node server.js --open=/control
 echo.
 echo The server stopped. Read the messages above if this was unexpected.
 pause

@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LMU Control Panel</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='none' stroke='%23e11d48' stroke-width='3'/%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0a0c10; --panel: #12151c; --panel-2: #181c25; --line: #242a36;
+    --text: #e6e9ef; --muted: #8a93a6; --faint: #5b6376; --accent: #e11d48;
+    --good: #22c55e; --watch: #f59e0b; --critical: #ef4444;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.45 "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    padding: 20px 16px 40px;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  header { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: .04em; flex: 1; }
+  h1 b { color: var(--accent); }
+  h2 { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+  a.button, button {
+    font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 14px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+  }
+  button:hover, a.button:hover { border-color: var(--faint); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { border-color: color-mix(in srgb, var(--critical) 60%, var(--line)); color: var(--critical); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 13px; }
+
+  .status-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .stat { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat .k { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .stat .v { font-size: 17px; font-weight: 600; margin-top: 2px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--faint); flex: none; }
+  .dot.good { background: var(--good); box-shadow: 0 0 8px var(--good); }
+  .dot.watch { background: var(--watch); }
+  .dot.bad { background: var(--critical); }
+
+  .row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--line); }
+  .row:first-of-type { border-top: 0; padding-top: 0; }
+  .row .text { flex: 1; min-width: 0; }
+  .row .title { font-weight: 600; }
+  .row .desc { color: var(--muted); font-size: 13px; }
+  .row.master .title { font-size: 18px; }
+  .row.disabled .title, .row.disabled .desc { opacity: .45; }
+
+  /* on/off switch */
+  .switch { position: relative; width: 52px; height: 30px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+  .switch span {
+    position: absolute; inset: 0; border-radius: 999px; background: #2a303d; border: 1px solid var(--line);
+    transition: background-color .2s;
+  }
+  .switch span::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%;
+    background: #c9ced8; transition: transform .2s;
+  }
+  .switch input:checked + span { background: var(--good); border-color: var(--good); }
+  .switch input:checked + span::after { transform: translateX(22px); background: #fff; }
+  .switch input:focus-visible + span { outline: 2px solid var(--text); outline-offset: 2px; }
+  .switch input:disabled { cursor: default; }
+  .switch input:disabled + span { opacity: .4; }
+  .row.master .switch { width: 64px; height: 36px; }
+  .row.master .switch span::after { width: 28px; height: 28px; }
+  .row.master .switch input:checked + span::after { transform: translateX(28px); }
+
+  label.field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+  select, input[type="password"], input[type="text"] {
+    font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%;
+  }
+  .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+  .keybox { display: flex; gap: 8px; margin-top: 8px; }
+  .keybox input { flex: 1; }
+  .estimate { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); font-size: 14px; }
+  .estimate b { font-size: 16px; }
+
+  .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .segmented button { border: 0; border-radius: 0; padding: 10px 18px; background: var(--panel-2); }
+  .segmented button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .banner { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--watch); color: var(--watch); background: color-mix(in srgb, var(--watch) 8%, transparent); display: none; }
+  .banner.show { display: block; }
+  .banner.bad { border-color: var(--critical); color: var(--critical); background: color-mix(in srgb, var(--critical) 8%, transparent); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 10; padding: 10px 16px; border-radius: 10px;
+    background: var(--panel-2); border: 1px solid var(--line); box-shadow: 0 10px 30px #000a; display: none; max-width: calc(100vw - 32px);
+  }
+  .toast.show { display: block; }
+  .toast.bad { border-color: var(--critical); }
+
+  @media (max-width: 760px) {
+    .grid, .fields, .status-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>LMU<b>·</b>CONTROL PANEL</h1>
+    <a class="button primary" href="/" target="lmu-dashboard">Open dashboard ↗</a>
+  </header>
+
+  <div class="banner bad" id="offline">
+    <b>The server isn’t running.</b> Double-click <b>Control Panel.bat</b> or <b>Start Dashboard.bat</b> in the
+    project folder, then this page reconnects by itself.
+  </div>
+  <div class="banner" id="readonly">
+    You can view settings from this device, but only the PC running the server can change them.
+  </div>
+
+  <section class="card" aria-label="Status">
+    <div class="status-row">
+      <div class="stat"><div class="k">Telemetry</div><div class="v"><span class="dot" id="telDot"></span><span id="telText">—</span></div></div>
+      <div class="stat"><div class="k">Dashboards open</div><div class="v" id="dashboards">—</div></div>
+      <div class="stat"><div class="k">AI cost this session</div><div class="v" id="cost">—</div></div>
+    </div>
+    <div class="note" id="telMessage"></div>
+  </section>
+
+  <div class="grid">
+    <section class="card" aria-label="AI engineers">
+      <h2>AI engineers</h2>
+      <div class="row master" id="rowMaster">
+        <div class="text">
+          <div class="title">AI</div>
+          <div class="desc" id="masterDesc">Turns every engineer on or off at once.</div>
+        </div>
+        <label class="switch"><input type="checkbox" role="switch" id="aiEnabled" aria-label="AI on or off"><span></span></label>
+      </div>
+      <div class="row" id="rowTire">
+        <div class="text">
+          <div class="title">Tire engineer</div>
+          <div class="desc" id="tireDesc">Checks your tires every few seconds.</div>
+        </div>
+        <label class="switch"><input type="checkbox" role="switch" id="tireEngineer" aria-label="Tire engineer on or off"><span></span></label>
+      </div>
+      <div class="row" id="rowStrat">
+        <div class="text">
+          <div class="title">Strategist</div>
+          <div class="desc">Pit, fuel and rival calls after every lap and pit stop.</div>
+        </div>
+        <label class="switch"><input type="checkbox" role="switch" id="strategist" aria-label="Strategist on or off"><span></span></label>
+      </div>
+      <div class="row" id="rowVoice">
+        <div class="text">
+          <div class="title">Voice engineer</div>
+          <div class="desc">Answers push-to-talk questions from your wheel.</div>
+        </div>
+        <label class="switch"><input type="checkbox" role="switch" id="voiceEngineer" aria-label="Voice engineer on or off"><span></span></label>
+      </div>
+      <div class="note">Switches apply immediately and are remembered next time.</div>
+    </section>
+
+    <section class="card" aria-label="Claude">
+      <h2>Claude</h2>
+      <div id="keyStatus" class="small"></div>
+      <div class="keybox">
+        <input type="password" id="keyInput" placeholder="Paste API key (sk-ant-…)" autocomplete="off" spellcheck="false">
+        <button id="keySave">Save key</button>
+      </div>
+      <div class="keybox"><button id="keyRemove" class="danger" style="display:none">Remove key</button></div>
+      <div class="fields">
+        <label class="field">Model
+          <select id="model">
+            <option value="claude-opus-5">Opus 5 (best)</option>
+            <option value="claude-sonnet-5">Sonnet 5 (cheaper)</option>
+            <option value="claude-haiku-4-5">Haiku 4.5 (cheapest)</option>
+          </select>
+        </label>
+        <label class="field">Tire check every
+          <select id="tireIntervalSec"></select>
+        </label>
+      </div>
+      <div class="estimate" id="estimate">—</div>
+      <div class="note">Estimate per hour of driving with every engineer on. Voice questions add about 1 cent each.</div>
+    </section>
+
+    <section class="card" aria-label="Telemetry source">
+      <h2>Telemetry source</h2>
+      <div class="segmented" role="group" aria-label="Telemetry source">
+        <button id="srcGame" aria-pressed="false">Game (LMU)</button>
+        <button id="srcSim" aria-pressed="false">Simulator</button>
+      </div>
+      <div class="fields">
+        <label class="field">Simulator speed
+          <select id="mockSpeed"></select>
+        </label>
+      </div>
+      <div class="note">
+        Switches instantly and clears the session history. Next time, the server starts in the mode of the file you
+        launch (Start Dashboard = game, Start Simulator = simulator).
+      </div>
+    </section>
+
+    <section class="card" aria-label="Server">
+      <h2>Server</h2>
+      <p class="small muted" style="margin-top:0">
+        Stopping the server ends all AI calls. To start again, double-click <b>Control Panel.bat</b> or
+        <b>Start Dashboard.bat</b>.
+      </p>
+      <button id="stopServer" class="danger">Stop server</button>
+    </section>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+
+  // Estimated USD per tire check, and per hour for strategy, by model
+  const COST = {
+    'claude-opus-5': { tire: 0.03, strategyHour: 1.3 },
+    'claude-sonnet-5': { tire: 0.012, strategyHour: 0.5 },
+    'claude-haiku-4-5': { tire: 0.0045, strategyHour: 0.2 },
+  };
+
+  let current = null;
+  let busy = false;
+  let toastTimer = null;
+
+  function toast(text, bad = false) {
+    const t = $('toast');
+    t.textContent = text;
+    t.className = 'toast show' + (bad ? ' bad' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (t.className = 'toast'), 3500);
+  }
+
+  async function load() {
+    try {
+      const res = await fetch('/api/control', { cache: 'no-store' });
+      if (!res.ok) throw new Error(res.statusText);
+      $('offline').classList.remove('show');
+      render(await res.json());
+    } catch {
+      $('offline').classList.add('show');
+      setEnabled(false);
+    }
+  }
+
+  function setEnabled(on) {
+    document.querySelectorAll('.card input, .card select, .card button').forEach((el) => (el.disabled = !on));
+  }
+
+  function render(s) {
+    current = s;
+    if (busy) return;
+    setEnabled(true);
+
+    // Status
+    const t = s.telemetry;
+    const dot = $('telDot');
+    dot.className = 'dot ' + (t.live ? 'good' : t.connected ? 'watch' : 'bad');
+    $('telText').textContent =
+      (t.source === 'simulator' ? 'Simulator · ' : 'Game · ') + (t.live ? 'Live' : t.connected ? 'Paused' : 'Waiting');
+    $('telMessage').textContent = t.message || '';
+    $('dashboards').textContent = s.dashboards;
+    const tot = s.ai.totals || {};
+    $('cost').textContent = `$${Number(tot.costUsd || 0).toFixed(2)} · ${tot.requests || 0} calls`;
+
+    // AI switches
+    const ai = s.ai;
+    $('aiEnabled').checked = ai.master;
+    $('aiEnabled').disabled = !ai.hasKey;
+    $('masterDesc').textContent = ai.hasKey
+      ? ai.master ? 'On. Turn off to stop every AI call.' : 'Off. No AI calls are made.'
+      : 'Add your API key on the right to use the AI.';
+    for (const [id, row] of [['tireEngineer', 'rowTire'], ['strategist', 'rowStrat'], ['voiceEngineer', 'rowVoice']]) {
+      $(id).checked = s.engineers[id];
+      const usable = ai.hasKey && ai.master;
+      $(id).disabled = !usable;
+      $(row).classList.toggle('disabled', !usable);
+    }
+    $('tireDesc').textContent = `Checks your tires every ${ai.tireIntervalSec} seconds.`;
+
+    // Claude
+    $('keyStatus').innerHTML = ai.hasKey
+      ? `<span class="dot good" style="display:inline-block;margin-right:6px"></span>API key set <span class="muted">(${escapeHtml(ai.keyHint || '')})</span>`
+      : `<span class="dot bad" style="display:inline-block;margin-right:6px"></span>No API key. Get one at console.anthropic.com → API Keys.`;
+    $('keyRemove').style.display = ai.hasKey ? '' : 'none';
+    $('model').value = ai.model;
+    fillSelect('tireIntervalSec', s.options.tireIntervalsSec, ai.tireIntervalSec, (v) => `${v} seconds`);
+    renderEstimate(ai.model, ai.tireIntervalSec, s.engineers, ai.master && ai.hasKey);
+
+    // Telemetry
+    $('srcGame').setAttribute('aria-pressed', t.source === 'game');
+    $('srcSim').setAttribute('aria-pressed', t.source === 'simulator');
+    $('srcGame').title = t.gameAvailable ? '' : 'Only on the Windows PC running LMU';
+    fillSelect('mockSpeed', s.options.mockSpeeds, t.mockSpeed, (v) => (v === 1 ? 'Real time' : `${v}× faster`));
+  }
+
+  function renderEstimate(model, intervalSec, engineers, on) {
+    if (!on) {
+      $('estimate').innerHTML = 'AI is off: <b>$0</b> per hour.';
+      return;
+    }
+    const c = COST[model] || COST['claude-opus-5'];
+    let perHour = 0;
+    if (engineers.tireEngineer) perHour += (3600 / intervalSec) * c.tire;
+    if (engineers.strategist) perHour += c.strategyHour;
+    $('estimate').innerHTML = `About <b>$${perHour.toFixed(perHour < 10 ? 2 : 0)}</b> per hour of driving.`;
+  }
+
+  function fillSelect(id, values, selected, label) {
+    const sel = $(id);
+    const list = values.includes(selected) ? values : [...values, selected].sort((a, b) => a - b);
+    const html = list.map((v) => `<option value="${v}"${v === selected ? ' selected' : ''}>${label(v)}</option>`).join('');
+    if (sel.innerHTML !== html) sel.innerHTML = html;
+    sel.value = String(selected);
+  }
+
+  const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  async function post(url, body, okMessage) {
+    busy = true;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 403) {
+        $('readonly').classList.add('show');
+        throw new Error(data.error || 'Not allowed from this device');
+      }
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      if (okMessage) toast(okMessage);
+      busy = false;
+      if (data.ai) render(data);
+      else if (data.state) render(data.state);
+      return true;
+    } catch (err) {
+      toast(err.message, true);
+      busy = false;
+      load();
+      return false;
+    }
+  }
+
+  // Switches
+  $('aiEnabled').addEventListener('change', (e) =>
+    post('/api/control', { aiEnabled: e.target.checked }, e.target.checked ? 'AI on' : 'AI off: no more AI calls'));
+  for (const [id, name] of [['tireEngineer', 'Tire engineer'], ['strategist', 'Strategist'], ['voiceEngineer', 'Voice engineer']]) {
+    $(id).addEventListener('change', (e) => post('/api/control', { [id]: e.target.checked }, `${name} ${e.target.checked ? 'on' : 'off'}`));
+  }
+
+  // Claude
+  $('keySave').addEventListener('click', async () => {
+    const key = $('keyInput').value.trim();
+    if (!key) return toast('Paste your API key first', true);
+    if (await post('/api/control/api-key', { key }, 'API key saved')) $('keyInput').value = '';
+  });
+  $('keyInput').addEventListener('keydown', (e) => e.key === 'Enter' && $('keySave').click());
+  $('keyRemove').addEventListener('click', () => {
+    if (confirm('Remove the API key? The AI stops until you add it again.')) post('/api/control/api-key', { key: '' }, 'API key removed');
+  });
+  $('model').addEventListener('change', (e) => post('/api/control', { model: e.target.value }, 'Model changed'));
+  $('tireIntervalSec').addEventListener('change', (e) =>
+    post('/api/control', { tireIntervalSec: Number(e.target.value) }, `Tire check every ${e.target.value} s`));
+
+  // Telemetry
+  $('srcGame').addEventListener('click', () => post('/api/control', { source: 'game' }, 'Switched to the game'));
+  $('srcSim').addEventListener('click', () => post('/api/control', { source: 'simulator' }, 'Switched to the simulator'));
+  $('mockSpeed').addEventListener('change', (e) => post('/api/control', { mockSpeed: Number(e.target.value) }, 'Simulator speed changed'));
+
+  // Server
+  $('stopServer').addEventListener('click', async () => {
+    if (!confirm('Stop the server? The dashboard and all AI stop until you start it again.')) return;
+    await post('/api/control/shutdown', {}, 'Server stopping…');
+    setTimeout(load, 1500);
+  });
+
+  load();
+  setInterval(load, 1500);
+})();
+</script>
+</body>
+</html>

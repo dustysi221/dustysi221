@@ -141,7 +141,13 @@ LMU loads a plugin only when it is enabled in
 
 ## 3. Running it
 
-**Easiest:** double-click **`Start Dashboard.bat`** in the project folder (or
+**Easiest:** double-click **`Control Panel.bat`**: one page (`/control`) with
+on/off switches for the AI, each engineer (tire, strategist, voice), game vs
+simulator and simulator speed, the model, tire check interval, your API key, and
+a Stop server button. Changes apply instantly and are saved to `.env`; only the PC
+running the server can change them.
+
+Or double-click **`Start Dashboard.bat`** in the project folder (or
 **`Start Simulator.bat`** to test without the game, **`Update Dashboard.bat`** to
 get the latest version). Plain-language notes for every step are in the
 **`NOTES`** folder, starting with `00 START HERE.txt`.
@@ -270,6 +276,7 @@ the server after a change.
 | `FUEL_RESERVE_LAPS` | `1` | Extra fuel the strategist plans to carry to the flag. |
 | `STRATEGY_MAX_INTERVAL_MS` | `180000` | Refresh strategy at least this often on very long laps. |
 | `VOICE_EFFORT` | `low` | Claude effort for spoken answers. `low` answers fastest. |
+| `AI_ENABLED` / `TIRE_ENGINEER` / `STRATEGIST` / `VOICE_ENGINEER` | `true` | On/off switches, normally set from the Control Panel. |
 | `MOCK_SPEED` | `1` | Simulator time multiplier. |
 
 The dashboard's ⚙ menu has per-screen settings (temperature window, psi/kPa,
@@ -420,6 +427,8 @@ wheel button ─► wheel-input.js ─► voice-engine.js (speech → text) ─�
 |---|---|
 | `server.js` | Express + WebSocket server, polling loop, analysis scheduling |
 | `public/index.html` | The dashboard (inline CSS/JS, no build step) |
+| `public/control.html` | The Control Panel |
+| `src/envFile.js` | Saves Control Panel changes into `.env` without touching other lines |
 | `public/wheel-input.js` | Push-to-talk wheel button via the Gamepad API, with button learning |
 | `public/voice-engine.js` | Web Speech API: speech-to-text while the button is held, text-to-speech for answers |
 | `src/rf2Layout.js` | Plugin memory layout (`#pragma pack(4)` structs) |
@@ -455,7 +464,9 @@ simulator to the real game, see [TESTING.md](TESTING.md).
 
 ### HTTP and WebSocket API
 
-HTTP: `GET /api/health`, `GET /api/snapshot`, `GET /api/tire-analysis`, `GET /api/strategy`.
+HTTP: `GET /api/health`, `GET /api/snapshot`, `GET /api/tire-analysis`, `GET /api/strategy`,
+`GET /api/control`; from the local PC only: `POST /api/control` (switches, model,
+interval, source), `POST /api/control/api-key`, `POST /api/control/shutdown`.
 
 WebSocket `ws://localhost:3000/telemetry`: every message is `{ "type", "data" }`.
 

@@ -1,0 +1,50 @@
+12 CONTROL PANEL
+================
+One page to turn everything on and off, without editing files or restarting.
+
+OPEN IT
+-------
+- Double-click "Control Panel.bat" in the project folder.
+  (It starts the server if it isn't running, then opens the Control Panel.)
+- Or, with the dashboard running: click "Control" at the top of the
+  dashboard, or open  http://localhost:3000/control
+
+WHAT'S IN IT
+------------
+STATUS (top)
+  Telemetry: Game or Simulator, and Live / Paused / Waiting
+  Dashboards open, and the AI cost this session
+
+AI ENGINEERS
+  AI ................ master switch: turns every AI call on or off
+  Tire engineer ..... tire checks every few seconds
+  Strategist ........ pit / fuel / rival calls after every lap
+  Voice engineer .... answers to your push-to-talk questions
+  Switches work instantly and are remembered next time (saved in .env).
+
+CLAUDE
+  API key ........... paste your key and click "Save key" (saved in .env,
+                      only the start and end are ever shown). "Remove key"
+                      turns the AI off.
+  Model ............. Opus 5 (best) / Sonnet 5 (cheaper) / Haiku 4.5 (cheapest)
+  Tire check every .. 5 / 10 / 15 / 30 / 60 seconds
+  Estimate .......... roughly what it costs per hour with your settings
+
+TELEMETRY SOURCE
+  Game (LMU) / Simulator ... switches instantly (clears the session history)
+  Simulator speed ........... real time up to 20x faster
+  NOT remembered: next time the server starts in the mode of the file you
+  double-click (Start Dashboard = game, Start Simulator = simulator,
+  Control Panel = game).
+
+SERVER
+  Stop server ....... stops everything, including all AI calls. Start again
+                      with Control Panel.bat or Start Dashboard.bat.
+
+GOOD TO KNOW
+------------
+- Settings can only be changed from the PC running the server. A tablet or
+  phone on your Wi-Fi can open the page but not change anything.
+- When you switch the AI or an engineer off, the dashboard shows
+  "AI paused" or "... switched off (Control Panel)".
+- Turning the AI off costs nothing and keeps the dashboard running.
