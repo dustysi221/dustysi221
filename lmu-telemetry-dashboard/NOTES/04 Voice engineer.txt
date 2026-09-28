@@ -82,6 +82,10 @@ Follow-ups work: it remembers your last few questions.
   "What's the gap to the car ahead?"
   "Should I push or save the tires?"
   "What pressure changes for the next stop?"
+  "What lap time is P1 doing?"
+  "How far am I off the leader?"
+  "Who's fastest in my class?"
+  "Am I quicker than the car ahead?"
 
 -----------------------------------------------------------------
 7. IMPORTANT

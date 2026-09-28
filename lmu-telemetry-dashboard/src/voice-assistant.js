@@ -106,6 +106,68 @@ class VoiceAssistant {
 }
 
 
+const MAX_STANDINGS = 30;
+const r3 = (n) => (Number.isFinite(n) ? Number(n.toFixed(3)) : null);
+
+/**
+ * Leaderboard for questions like "what's P1 doing?": every car's position,
+ * class position, lap times and gaps, plus the fastest lap in each class.
+ * Big grids are trimmed to the overall top 10, the top 10 of your class and
+ * the cars around you.
+ */
+function buildStandings(field, tracker) {
+  if (!field.length) return null;
+  const me = field.find((c) => c.isPlayer) || null;
+  const byPos = [...field].sort((a, b) => a.position - b.position);
+
+  const classPos = new Map();
+  const classCount = {};
+  for (const c of byPos) {
+    classCount[c.class] = (classCount[c.class] || 0) + 1;
+    classPos.set(c.id, classCount[c.class]);
+  }
+
+  let cars = byPos;
+  if (byPos.length > MAX_STANDINGS && me) {
+    const keep = new Set();
+    byPos.slice(0, 10).forEach((c) => keep.add(c.id));
+    byPos.filter((c) => c.class === me.class).slice(0, 10).forEach((c) => keep.add(c.id));
+    byPos.filter((c) => Math.abs(c.position - me.position) <= 3).forEach((c) => keep.add(c.id));
+    cars = byPos.filter((c) => keep.has(c.id));
+  }
+
+  const leader = byPos[0];
+  const classBest = {};
+  for (const c of field) {
+    if (!(c.bestLapSec > 0)) continue;
+    const best = classBest[c.class];
+    if (!best || c.bestLapSec < best.bestLapSec) {
+      classBest[c.class] = { car: c.vehicle, driver: c.driver, bestLapSec: r3(c.bestLapSec), you: c.isPlayer || undefined };
+    }
+  }
+
+  return {
+    totalCars: field.length,
+    note: 'pos = overall position, classPos = position in class. gapToLeaderSec is to the overall leader; lapsDown > 0 means laps behind the leader.',
+    classBest,
+    cars: cars.map((c) => ({
+      pos: c.position,
+      classPos: classPos.get(c.id),
+      class: c.class,
+      car: c.vehicle,
+      driver: c.driver,
+      you: c.isPlayer || undefined,
+      lastLapSec: r3(c.lastLapSec),
+      bestLapSec: r3(c.bestLapSec),
+      avgPaceSec: tracker ? r3(tracker.competitorPace(c.id)) : null,
+      gapToLeaderSec: c.id === leader.id ? 0 : r3(c.timeBehindLeaderSec),
+      lapsDown: c.lapsBehindLeader || 0,
+      pitStops: c.pitStops,
+      inPits: c.inPits || undefined,
+    })),
+  };
+}
+
 /** Compact live-data brief for a voice question. Works with partial or no telemetry. */
 function buildVoiceBrief(ctx = {}) {
   const { snapshot, field, tireHistory, tracker, tireAnalysis, strategy } = ctx;
@@ -195,6 +257,7 @@ function buildVoiceBrief(ctx = {}) {
     rivals: strat && strat.competitors
       ? { ahead: rival(strat.competitors.ahead), behind: rival(strat.competitors.behind) }
       : null,
+    standings: buildStandings(field || [], tracker),
     latest_calls: {
       tire_engineer: tireAnalysis
         ? {
@@ -218,4 +281,4 @@ function buildVoiceBrief(ctx = {}) {
   };
 }
 
-module.exports = { VoiceAssistant, BusyError, buildVoiceBrief, SCHEMA };
+module.exports = { VoiceAssistant, BusyError, buildVoiceBrief, buildStandings, SCHEMA };

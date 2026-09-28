@@ -163,3 +163,40 @@ test('speech recognition alternatives reach Claude, without duplicates', async (
   await voice.ask('Fuel?');
   assert.equal('other_possible_hearings' in client.calls[1].payload, false);
 });
+
+test('voice brief has the leaderboard with lap times and class bests', () => {
+  const brief = buildVoiceBrief(context(1500));
+  const st = brief.standings;
+  assert.equal(st.totalCars, 6);
+  const p1 = st.cars.find((c) => c.pos === 1);
+  assert.equal(p1.car, '#50 Ferrari 499P');
+  assert.ok(p1.bestLapSec > 98 && p1.bestLapSec < 100);
+  assert.equal(p1.gapToLeaderSec, 0);
+  const me = st.cars.find((c) => c.you);
+  assert.equal(me.classPos, 3);
+  assert.ok(Number.isFinite(me.avgPaceSec === null ? 0 : me.avgPaceSec));
+  assert.equal(st.classBest.LMGT3.car, '#92 Porsche 911 GT3 R');
+  assert.match(SYSTEM_PROMPT, /standings/);
+});
+
+test('standings on a big grid keep the top 10, your class top 10 and the cars around you', () => {
+  const { buildStandings } = require('../src/voice-assistant');
+  const field = Array.from({ length: 60 }, (_, i) => ({
+    id: i + 1,
+    position: i + 1,
+    class: i % 3 === 0 ? 'Hypercar' : i % 3 === 1 ? 'LMP2' : 'LMGT3',
+    vehicle: `Car ${i + 1}`,
+    driver: `Driver ${i + 1}`,
+    isPlayer: i + 1 === 40,
+    bestLapSec: 100 + i,
+    lastLapSec: 101 + i,
+    timeBehindLeaderSec: i * 2,
+    lapsBehindLeader: 0,
+    pitStops: 0,
+  }));
+  const st = buildStandings(field, null);
+  const positions = st.cars.map((c) => c.pos);
+  assert.ok(st.cars.length < 60);
+  for (const p of [1, 10, 37, 40, 43]) assert.ok(positions.includes(p), `includes P${p}`);
+  assert.ok(st.cars.find((c) => c.you).pos === 40);
+});
