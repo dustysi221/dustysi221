@@ -123,7 +123,37 @@ a few minutes. Compare it with the cost shown on the dashboard.
 
 **If a check fails:** the dashboard puts errors in the **Engineer radio** feed
 (e.g. "Invalid Claude API key", "rate limit"). The PowerShell window shows the
-same message. README section 6 covers each one.
+same message. README section 7 covers each one.
+
+### Stage 3b: the voice engineer (about 1 cent per question)
+
+Keep the simulator running from stage 3, in **Chrome or Edge**, with a
+microphone and headset or speakers connected.
+
+1. Click **Enable voice** (top right) and allow the microphone.
+2. Open ⚙ and click **Test voice**. You should hear "Radio check…". If not,
+   pick another **Engineer voice** and try again.
+3. Hold **V** (click on the dashboard first so it has focus), say *"How are my
+   tires looking?"*, and release.
+
+**Check:**
+
+- [ ] While holding V, a red **Listening…** bar shows your words as you speak.
+- [ ] After releasing, the bar shows **Engineer is thinking…** and what it heard.
+- [ ] Within a few seconds the answer appears in the bar, is spoken aloud, and
+      shows up in **Engineer radio** under your question (YOU → ENG).
+- [ ] Ask a follow-up, e.g. *"What about the rears?"*. The answer should follow on.
+- [ ] Ask *"How much fuel do I need?"*: it should mention about 2.9 liters a lap.
+
+**Wheel button:**
+
+1. Press any button on your wheel, then open ⚙: **Detected** should list your wheel.
+2. Click **Assign** and press the button you want for push-to-talk.
+3. Hold that wheel button, ask a question, release: same result as with V.
+4. Click on another window (for example this guide) so the dashboard loses
+   focus, keep the dashboard visible, and try the wheel button again. This is
+   how it works while LMU has focus. If nothing happens, note which browser you
+   use and tell me.
 
 ---
 
@@ -151,7 +181,7 @@ same message. README section 6 covers each one.
 - [ ] Speed, gear and RPM match the in-game dash.
 
 If it stays on **Waiting for LMU**, the plugin isn't loaded. See README
-section 6.
+section 7.
 
 ### 4b. Is the data correct?
 
@@ -190,10 +220,18 @@ Drive 3–4 clean laps.
 - [ ] Pause the game: the dashboard dims and says **Paused**. Resume: it goes back to **Live**.
 - [ ] Make a pit stop with fuel and new tires: fuel goes up, wear drops to ~0%, and the strategist posts a new call after your next clean lap.
 
-### 4f. Cost
+### 4f. Voice while driving
+
+With the dashboard visible on your second monitor and LMU focused, hold your
+assigned wheel button and ask *"How are my tires?"* or *"When do I pit?"*.
+
+- [ ] The answer is spoken in your headset without leaving the game.
+- [ ] It uses your real numbers (fuel per lap, laps left, gaps).
+
+### 4g. Cost
 
 After the session, compare the dashboard's cost with the Console usage page.
-Then pick your everyday settings from README section 5, for example Sonnet 5
+Then pick your everyday settings from README section 6, for example Sonnet 5
 at 5 s, or Opus 5 at 15 s.
 
 ---

@@ -25,6 +25,7 @@ const { ClaudeClient, describeClaudeError } = require('./src/claudeClient');
 const { TireAnalyzer } = require('./src/tire-analyzer');
 const { SessionTracker } = require('./src/sessionTracker');
 const { StrategyAnalyzer } = require('./src/strategy-analyzer');
+const { VoiceAssistant, BusyError } = require('./src/voice-assistant');
 
 const config = {
   host: process.env.HOST || '127.0.0.1',
@@ -44,6 +45,7 @@ const config = {
   pitLossSec: numEnv('PIT_LOSS_SEC', 35),
   fuelReserveLaps: numEnv('FUEL_RESERVE_LAPS', 1),
   strategyMaxIntervalMs: intEnv('STRATEGY_MAX_INTERVAL_MS', 180_000),
+  voiceEffort: process.env.VOICE_EFFORT || 'low',
 };
 
 const RECONNECT_MS = 2000;
@@ -92,6 +94,28 @@ const strategyAnalyzer = new StrategyAnalyzer({
   pitLossSec: config.pitLossSec,
   wearLimitPercent: config.tireWearLimitPercent,
   fuelReserveLaps: config.fuelReserveLaps,
+});
+const voice = new VoiceAssistant({
+  client: claude,
+  effort: config.voiceEffort,
+  getContext: () => ({
+    snapshot: state.snapshot,
+    field: state.field,
+    tireHistory: history,
+    tracker,
+    tireAnalysis: state.tireAnalysis,
+    strategy: state.strategy,
+    tireOptions: {
+      optimalMinC: config.tireOptimalMinC,
+      optimalMaxC: config.tireOptimalMaxC,
+      wearLimitPercent: config.tireWearLimitPercent,
+    },
+    strategyOptions: {
+      pitLossSec: config.pitLossSec,
+      wearLimitPercent: config.tireWearLimitPercent,
+      fuelReserveLaps: config.fuelReserveLaps,
+    },
+  }),
 });
 
 const state = {
@@ -259,6 +283,19 @@ async function runStrategy({ force = false } = {}) {
   }
 }
 
+// Push-to-talk question from a dashboard: answer only that dashboard.
+async function handleVoiceQuery(ws, { id, text }) {
+  try {
+    const answer = await voice.ask(text);
+    log.info(`[voice] "${answer.question}" -> "${answer.reply}" (${answer.latencyMs} ms)`);
+    send(ws, { type: 'voice_reply', data: { id, ...answer } });
+  } catch (err) {
+    const message = err instanceof BusyError ? err.message : describeClaudeError(err);
+    log.warn('[voice]', message);
+    send(ws, { type: 'voice_error', data: { id, message, busy: err instanceof BusyError } });
+  }
+}
+
 // --- HTTP + WebSocket -------------------------------------------------------
 
 const app = express();
@@ -311,6 +348,7 @@ wss.on('connection', (ws, req) => {
     if (msg.type === 'ping') send(ws, { type: 'pong', data: { at: Date.now() } });
     if (msg.type === 'requestAnalysis') runTireAnalysis({ force: true });
     if (msg.type === 'requestStrategy') runStrategy({ force: true });
+    if (msg.type === 'voice_query') handleVoiceQuery(ws, msg.data || {});
   });
 
   ws.on('close', () => log.info(`[ws] client disconnected (${wss.clients.size} total)`));

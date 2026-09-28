@@ -10,6 +10,8 @@ asks Claude for:
   temperature assessment and driving tips
 - **Race strategy** (after every lap and pit stop): when to pit, fuel status,
   tire trend, overall plan and rival pace
+- **Voice engineer** (push to talk on your wheel): ask a question out loud and
+  hear the answer in your headset, using the browser's free built-in speech
 
 ![Dashboard on a simulated race](docs/dashboard.png)
 
@@ -20,10 +22,11 @@ asks Claude for:
 1. [Prerequisites](#1-prerequisites)
 2. [Installation](#2-installation)
 3. [Running it](#3-running-it)
-4. [Configuration](#4-configuration)
-5. [API cost](#5-api-cost)
-6. [Troubleshooting](#6-troubleshooting)
-7. [How it works](#7-how-it-works)
+4. [Voice engineer](#4-voice-engineer)
+5. [Configuration](#5-configuration)
+6. [API cost](#6-api-cost)
+7. [Troubleshooting](#7-troubleshooting)
+8. [How it works](#8-how-it-works)
 
 ---
 
@@ -186,7 +189,61 @@ Windows Firewall when asked (private networks only), and open
 
 ---
 
-## 4. Configuration
+## 4. Voice engineer
+
+Hold a button on your wheel, ask a question, release, and the engineer answers
+in your headset:
+
+> **You:** "How are my tires looking?"
+> **Engineer:** "Copy that. Front left running hot, take 0.2 PSI out at the stop. Box end of lap 30."
+
+Speech-to-text and text-to-speech use the **Web Speech API built into Chrome and
+Edge**, so they cost nothing. Only the answer itself is a Claude call (about 1
+cent per question, see [API cost](#6-api-cost)).
+
+### Set it up (once)
+
+1. Open the dashboard in **Chrome or Edge**. Firefox has no speech recognition.
+2. Click **Enable voice** (top right) and allow the microphone when the browser
+   asks. Browsers only allow a page to talk after it has been clicked once, so
+   do this each time you open the dashboard.
+3. Open ⚙ → **Voice · push to talk** → **Assign**, then press the wheel button
+   you want to use. Until you assign one, button 0 on any controller is used.
+   If no wheel is listed under "Detected", press any button on the wheel first:
+   browsers only show a controller after it has been used.
+4. Pick an **Engineer voice** and **Speech speed**, and use **Test voice** to
+   check it plays through your headset. Edge's "Natural" voices sound best.
+
+### Use it
+
+1. **Hold** your wheel button (or hold **V** while the dashboard is focused, or
+   hold the mic button). A red bar shows **Listening…** with what it hears, live.
+2. **Release** to send. The bar shows what was heard, then the engineer's
+   answer, which is also spoken and added to the **Engineer radio** feed.
+3. Pressing the button again while the engineer is talking cuts them off.
+
+The engineer sees your live tires, fuel, pace, gaps to the cars around you,
+and the tire engineer's and strategist's latest calls, and remembers your last
+few questions, so follow-ups like "what about the rears?" work.
+
+Tick **Read out new engineer calls** to also hear the tire engineer and
+strategist whenever their advice changes.
+
+### Good to know
+
+- **Keep the dashboard window visible** on your second monitor (not minimized).
+  Browsers stop reading controllers for hidden pages. Chrome keeps reading them
+  while another window, like LMU, has focus; if your wheel button does nothing
+  while driving, click the dashboard once and try again, then try the other
+  browser.
+- **Speech recognition needs internet.** Chrome sends the recording to Google's
+  speech service and Edge to Microsoft's. It's free, but the audio leaves your PC.
+- The engineer's personality, answer length and radio phrases live in
+  `src/voice-prompts.js`. Edit it and restart the server to change them.
+
+---
+
+## 5. Configuration
 
 All settings live in `.env`; `.env.example` lists them with comments. Restart
 the server after a change.
@@ -205,14 +262,15 @@ the server after a change.
 | `PIT_LOSS_SEC` | `35` | Time lost per stop incl. pit lane. Set it per track; undercut/overcut advice depends on it. |
 | `FUEL_RESERVE_LAPS` | `1` | Extra fuel the strategist plans to carry to the flag. |
 | `STRATEGY_MAX_INTERVAL_MS` | `180000` | Refresh strategy at least this often on very long laps. |
+| `VOICE_EFFORT` | `low` | Claude effort for spoken answers. `low` answers fastest. |
 | `MOCK_SPEED` | `1` | Simulator time multiplier. |
 
-The dashboard's ⚙ menu has per-screen display settings (temperature window,
-psi/kPa, km/h/mph), saved in the browser.
+The dashboard's ⚙ menu has per-screen settings (temperature window, psi/kPa,
+km/h/mph, push-to-talk button, voice, speech speed), saved in the browser.
 
 ---
 
-## 5. API cost
+## 6. API cost
 
 You pay Anthropic per token. The server only calls Claude **while a dashboard
 is open and the car is live** (not paused, not in menus), and never starts a new
@@ -249,6 +307,10 @@ ANALYSIS_MODEL=claude-opus-5
 ANALYSIS_INTERVAL_MS=15000
 ```
 
+**Voice questions** add about 1 cent each with Opus 5 (about half that with
+Sonnet 5): roughly 2,000 tokens in and 150 out. Speech-to-text and
+text-to-speech are free.
+
 The **Engineer radio** header shows the real number of calls and the running
 cost for the session, so you can check against your own driving. Set a monthly
 spend limit in the [Anthropic Console](https://console.anthropic.com/) as a
@@ -256,7 +318,7 @@ safety net.
 
 ---
 
-## 6. Troubleshooting
+## 7. Troubleshooting
 
 **The dashboard says "Waiting for LMU" while I'm driving**
 - Check that `rFactor2SharedMemoryMapPlugin64.dll` is in `Le Mans Ultimate\Plugins\`.
@@ -304,6 +366,27 @@ Your account tier's rate limit is lower than the call rate. Raise
 Automatic strategy calls start after your first clean lap, since before that
 there's no fuel or wear rate to work from. Press **Update** to ask anyway.
 
+**The voice button says "Voice unsupported"**
+Use Chrome or Edge. Firefox has no speech recognition.
+
+**"Microphone blocked"**
+Click the padlock/site icon in the address bar, allow the microphone for
+`localhost`, and reload.
+
+**The wheel button does nothing**
+Open ⚙ and check your wheel is under **Detected** (press a wheel button first).
+Click **Assign** and press the button again. Keep the dashboard window visible,
+not minimized. If it works with the dashboard focused but not while LMU has
+focus, try the other browser (Chrome or Edge).
+
+**The engineer answers but I hear nothing**
+Click **Enable voice** again after reloading the page, check **Test voice** in
+⚙, and check Windows is sending sound to your headset.
+
+**"Didn't catch that"**
+Hold the button for the whole question and speak after the red bar appears.
+Speech recognition needs an internet connection.
+
 **`npm install` fails**
 Check `node -v` shows 20 or newer. Behind a company proxy, set npm's `proxy`
 and `https-proxy` config.
@@ -314,19 +397,24 @@ private networks, and use the PC's IP address, not `localhost`.
 
 ---
 
-## 7. How it works
+## 8. How it works
 
 ```
 LMU ──► rF2 shared memory plugin ──► server.js ──► ws://localhost:3000/telemetry ──► dashboard
                                         │
                                         ├─ tire-analyzer.js ──► Claude (every 5 s)
-                                        └─ strategy-analyzer.js ──► Claude (every lap / pit stop)
+                                        ├─ strategy-analyzer.js ──► Claude (every lap / pit stop)
+                                        └─ voice-assistant.js ──► Claude (each push-to-talk question)
+
+wheel button ─► wheel-input.js ─► voice-engine.js (speech → text) ─► server ─► voice-engine.js (text → speech)
 ```
 
 | File | Purpose |
 |---|---|
 | `server.js` | Express + WebSocket server, polling loop, analysis scheduling |
-| `public/index.html` | The dashboard (one file, inline CSS/JS, no build step) |
+| `public/index.html` | The dashboard (inline CSS/JS, no build step) |
+| `public/wheel-input.js` | Push-to-talk wheel button via the Gamepad API, with button learning |
+| `public/voice-engine.js` | Web Speech API: speech-to-text while the button is held, text-to-speech for answers |
 | `src/rf2Layout.js` | Plugin memory layout (`#pragma pack(4)` structs) |
 | `src/sharedMemory.js` | Opens `$rFactor2SMMP_Telemetry$` / `$rFactor2SMMP_Scoring$` through kernel32 and copies consistent snapshots |
 | `src/telemetryParser.js` | Raw buffers → °C, kPa, wear %, lap data, the whole field |
@@ -336,6 +424,8 @@ LMU ──► rF2 shared memory plugin ──► server.js ──► ws://localh
 | `src/brevity.js` | Caps engineer text length so it stays glanceable |
 | `src/tire-analyzer.js` | Tire metrics + Claude tire engineer |
 | `src/strategy-analyzer.js` | Strategy metrics + Claude strategist |
+| `src/voice-assistant.js` | Answers spoken questions with live telemetry context and short memory |
+| `src/voice-prompts.js` | The voice engineer's personality, answer length and radio phrases |
 | `src/mockSource.js` | Simulator that writes real plugin-format buffers |
 
 Both analyzers first compute the numbers in code (edge temperature spreads,
@@ -369,10 +459,14 @@ WebSocket `ws://localhost:3000/telemetry`: every message is `{ "type", "data" }`
 | `tire_analysis` | each tire result | see below |
 | `strategy` | each strategy call | see below |
 | `analysis_error` | a Claude call failed | `{ source, message, at }` |
+| `voice_reply` | answer to your `voice_query` | `{ id, question, reply, lap, latencyMs, … }` |
+| `voice_error` | a voice question failed | `{ id, message, busy }` |
 | `pong` | reply to `{ "type": "ping" }` | `{ at }` |
 
 Send `{ "type": "requestAnalysis" }` or `{ "type": "requestStrategy" }` to run
 either engineer immediately.
+Send `{ "type": "voice_query", "data": { "id": 1, "text": "How are my tires?" } }`
+to ask the voice engineer; only the asking dashboard gets the `voice_reply`.
 
 Each tire in `telemetry` has `pressureKpa`, `temps { innerC, middleC, outerC }`,
 `surfaceTempC`, `carcassTempC`, `wearPercent` (0 = new), `remainingPercent`,

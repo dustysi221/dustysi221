@@ -247,6 +247,55 @@
     width: 90px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; font: inherit;
   }
 
+  /* ---------- voice ---------- */
+  .mic-btn {
+    display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; padding: 5px 12px; font-size: 12px;
+    user-select: none; touch-action: none;
+  }
+  .mic-btn[data-state="off"] { border-style: dashed; color: var(--muted); }
+  .mic-btn[data-state="ready"] { color: var(--text); }
+  .mic-btn[data-state="listening"] { background: var(--critical); border-color: var(--critical); color: #fff; animation: pulse 1s infinite; }
+  .mic-btn[data-state="thinking"] { border-color: var(--watch); color: var(--watch); }
+  .mic-btn[data-state="speaking"] { border-color: var(--good); color: var(--good); }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--critical) 25%, transparent); } }
+
+  .voice-bar {
+    position: fixed; left: 50%; top: 64px; transform: translateX(-50%); z-index: 20;
+    width: min(760px, calc(100vw - 32px)); padding: 12px 16px; display: none; gap: 12px; align-items: flex-start;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 32px #000b;
+  }
+  .voice-bar.show { display: flex; }
+  .voice-bar[data-state="listening"] { border-color: var(--critical); }
+  .voice-bar[data-state="thinking"] { border-color: var(--watch); }
+  .voice-bar[data-state="speaking"] { border-color: var(--good); }
+  .voice-bar[data-state="error"] { border-color: var(--critical); }
+  .vb-icon {
+    flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--panel-2); color: var(--muted);
+  }
+  .voice-bar[data-state="listening"] .vb-icon { background: var(--critical); color: #fff; animation: pulse 1s infinite; }
+  .voice-bar[data-state="thinking"] .vb-icon { color: var(--watch); }
+  .voice-bar[data-state="speaking"] .vb-icon { color: var(--good); }
+  .vb-body { min-width: 0; flex: 1; }
+  .vb-status { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .vb-heard { font-size: 15px; color: var(--muted); margin-top: 2px; }
+  .vb-heard:empty { display: none; }
+  .vb-reply { font-size: clamp(17px, 1.5vw, 22px); font-weight: 600; margin-top: 4px; }
+  .vb-reply:empty { display: none; }
+
+  .msg.driver .avatar { border-color: var(--cool); color: var(--cool); }
+  .msg.driver .bubble { border-color: color-mix(in srgb, var(--cool) 40%, var(--line)); }
+  .msg.voice .avatar { border-color: var(--good); color: var(--good); }
+
+  .settings { max-height: calc(100dvh - 80px); overflow-y: auto; width: 300px; }
+  .settings hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
+  .settings .hint { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .settings .row { display: flex; gap: 8px; align-items: center; }
+  .settings .row button { flex: none; }
+  .settings select.wide { width: 100%; }
+  .settings input[type="range"] { width: 110px; }
+  .settings input[type="checkbox"] { width: auto; }
+
   /* ---------- short screens (e.g. 1366x768): compact cards ---------- */
   @media (max-height: 860px) and (min-width: 901px) {
     body { gap: 8px; padding: 8px; }
@@ -295,8 +344,18 @@
   </div>
   <span class="pill" id="connPill" data-state="offline"><span class="dot"></span><span id="connText">Connecting…</span></span>
   <span class="pill" id="aiPill" title="Claude analysis"><span class="dot"></span><span id="aiText">AI —</span></span>
+  <button class="mic-btn" id="micBtn" data-state="off" title="Push to talk: hold your wheel button, hold V, or hold this button"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg><span id="micText">Enable voice</span></button>
   <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">⚙</button>
 </header>
+
+<div class="voice-bar" id="voiceBar" data-state="idle" role="status" aria-live="polite">
+  <div class="vb-icon"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg></div>
+  <div class="vb-body">
+    <div class="vb-status" id="vbStatus">Listening…</div>
+    <div class="vb-heard" id="vbHeard"></div>
+    <div class="vb-reply" id="vbReply"></div>
+  </div>
+</div>
 
 <div class="panel settings" id="settings" role="dialog" aria-label="Display settings">
   <div class="label">Tire temperature window (°C)</div>
@@ -308,6 +367,16 @@
   <label>Speed unit
     <select id="speedUnit"><option value="kph">km/h</option><option value="mph">mph</option></select>
   </label>
+  <hr>
+  <div class="label">Voice · push to talk</div>
+  <div class="row"><span class="hint" id="pttBinding" style="flex:1">Wheel button: any device · button 0</span><button id="pttAssign">Assign</button></div>
+  <div class="hint" id="pttDevices">No wheel detected yet: press any button on it.</div>
+  <div class="hint">Or hold <b>V</b> (dashboard focused), or hold the mic button.</div>
+  <label>Engineer voice</label>
+  <select id="voiceSelect" class="wide"></select>
+  <label>Speech speed <input type="range" id="voiceRate" min="0.8" max="1.5" step="0.05"></label>
+  <label>Read out new engineer calls <input type="checkbox" id="readCalls"></label>
+  <button id="voiceTest">Test voice</button>
 </div>
 
 <main>
@@ -412,6 +481,8 @@
   </div>
 </section>
 
+<script src="wheel-input.js"></script>
+<script src="voice-engine.js"></script>
 <script>
 (() => {
   'use strict';
@@ -422,7 +493,12 @@
   const FEED_LIMIT = 60;
 
   // ---------- settings (per-viewer, optional localStorage) ----------
-  const defaults = { optMin: 75, optMax: 100, pressureUnit: 'psi', speedUnit: 'kph' };
+  const defaults = {
+    optMin: 75, optMax: 100, pressureUnit: 'psi', speedUnit: 'kph',
+    // push-to-talk: button 0 on any connected wheel/controller until one is assigned
+    pttGamepadId: null, pttGamepadName: null, pttButton: 0,
+    voiceName: '', voiceRate: 1.1, readCalls: false,
+  };
   const savedSettings = loadSettings();
   const settings = { ...defaults, ...savedSettings };
 
@@ -682,13 +758,14 @@
     // A new radio message only when the verdict itself changes, not the wording
     const pw = a.pit_window_laps ? `${a.pit_window_laps.earliest}-${a.pit_window_laps.latest}` : a.pit_window;
     const perTire = CORNERS.map((c) => a.tires?.[c]?.health || '').join(',');
-    addFeed({
+    const isNew = addFeed({
       key: `${health}|${a.pressure_adjustment}|${pw}|${perTire}`,
       cls: health,
       avatar: 'TE',
       meta: [timeOfDay(a.createdAt), a.lap != null ? `Lap ${a.lap}` : '', health.toUpperCase()].filter(Boolean).join(' · '),
       html: esc(a.radio || a.analysis),
     });
+    if (isNew) announce(a.radio || a.analysis);
   }
 
   let lastStrategy = null;
@@ -705,13 +782,14 @@
     updateCost(st.totals);
 
     // A new radio message only when the plan changes (pit lap, service, stops)
-    addFeed({
+    const isNew = addFeed({
       key: `st|${st.pit_lap}|${st.service}|${st.stops_remaining}|${st.tires_to_finish}`,
       cls: 'strategy',
       avatar: 'ST',
       meta: [timeOfDay(st.createdAt), st.lap != null ? `Lap ${st.lap}` : '', `${conf} confidence`].filter(Boolean).join(' · '),
       html: esc(st.radio || st.call || st.pit_recommendation),
     });
+    if (isNew) announce(st.radio || st.call);
   }
 
   function onAnalysisError(e) {
@@ -740,6 +818,8 @@
       prev.msg.querySelector('.bubble').innerHTML =
         `<div class="meta">${esc(meta)}<span class="repeat">×${count}</span></div>${html}`;
       feedEl.appendChild(prev.msg);
+      if (nearBottom) feedEl.scrollTop = feedEl.scrollHeight;
+      return false;
     } else {
       const msg = document.createElement('div');
       msg.className = 'msg ' + (cls || '');
@@ -749,6 +829,7 @@
       while (feedEl.children.length > FEED_LIMIT) feedEl.firstElementChild.remove();
     }
     if (nearBottom) feedEl.scrollTop = feedEl.scrollHeight;
+    return true;
   }
 
   function updateAge() {
@@ -782,6 +863,8 @@
         case 'tire_analysis': onTireAnalysis(msg.data); break;
         case 'strategy': onStrategy(msg.data); break;
         case 'analysis_error': onAnalysisError(msg.data); break;
+        case 'voice_reply': onVoiceReply(msg.data); break;
+        case 'voice_error': onVoiceError(msg.data); break;
       }
     });
     socket.addEventListener('close', () => {
@@ -813,6 +896,232 @@
     btn.textContent = 'Updating…';
     setTimeout(() => { btn.textContent = 'Update'; btn.disabled = !socketOpen || !status?.ai?.enabled; }, 4000);
   });
+
+
+  // ---------- voice: push to talk ----------
+  const voice = new VoiceEngine({ voiceName: settings.voiceName || null, rate: settings.voiceRate });
+  const wheel = new WheelInput({
+    binding: { gamepadId: settings.pttGamepadId, button: settings.pttButton },
+  });
+  let voiceQueryId = 0;
+  let pendingQuery = null; // id of the question waiting for an answer
+  let barTimer = null;
+
+  function setMic(state, text) {
+    const btn = $('micBtn');
+    btn.dataset.state = state;
+    $('micText').textContent = text;
+  }
+
+  function refreshMic() {
+    if (!voice.sttSupported) return setMic('off', 'Voice unsupported');
+    if (!voice.enabled) return setMic('off', 'Enable voice');
+    if (voice.state === 'listening') return setMic('listening', 'Listening…');
+    if (voice.state === 'processing' || pendingQuery) return setMic('thinking', 'Engineer…');
+    if (voice.state === 'speaking') return setMic('speaking', 'Engineer');
+    setMic('ready', 'Push to talk');
+  }
+
+  function showBar(state, status, { heard, reply, hideAfterMs } = {}) {
+    const bar = $('voiceBar');
+    clearTimeout(barTimer);
+    bar.dataset.state = state;
+    bar.classList.add('show');
+    $('vbStatus').textContent = status;
+    if (heard !== undefined) $('vbHeard').textContent = heard ? `“${heard}”` : '';
+    if (reply !== undefined) $('vbReply').textContent = reply || '';
+    if (hideAfterMs) barTimer = setTimeout(() => bar.classList.remove('show'), hideAfterMs);
+  }
+
+  function pttDown() {
+    if (!voice.enabled) {
+      showBar('error', 'Voice is off', { heard: '', reply: 'Click “Enable voice” at the top right once, then push to talk.', hideAfterMs: 5000 });
+      return;
+    }
+    voice.startListening();
+  }
+
+  function pttUp() {
+    voice.stopListening();
+  }
+
+  voice.addEventListener('state', (e) => {
+    const st = e.detail.state;
+    if (st === 'listening') showBar('listening', 'Listening… release to send', { heard: '', reply: '' });
+    if (st === 'processing') showBar('thinking', 'Processing…');
+    refreshMic();
+  });
+
+  voice.addEventListener('interim', (e) => {
+    showBar('listening', 'Listening… release to send', { heard: e.detail.text });
+  });
+
+  voice.addEventListener('final', (e) => {
+    const text = e.detail.text;
+    if (!text) {
+      showBar('error', 'Didn’t catch that', { heard: '', reply: 'Hold the button and speak, then release.', hideAfterMs: 3000 });
+      return;
+    }
+    askEngineer(text);
+  });
+
+  voice.addEventListener('error', (e) => {
+    showBar('error', 'Voice problem', { heard: '', reply: e.detail.message, hideAfterMs: 6000 });
+    refreshMic();
+  });
+
+  voice.addEventListener('enabled', refreshMic);
+  voice.addEventListener('voices', fillVoiceList);
+
+  function askEngineer(text) {
+    if (!socketOpen) {
+      showBar('error', 'Server offline', { heard: text, reply: 'The dashboard isn’t connected to the server.', hideAfterMs: 5000 });
+      return;
+    }
+    if (!status?.ai?.enabled) {
+      showBar('error', 'Claude is off', { heard: text, reply: 'Add CLAUDE_API_KEY to .env and restart the server.', hideAfterMs: 6000 });
+      return;
+    }
+    const id = ++voiceQueryId;
+    pendingQuery = id;
+    showBar('thinking', 'Engineer is thinking…', { heard: text, reply: '' });
+    addFeed({ key: 'q' + id, cls: 'driver', avatar: 'YOU', meta: timeOfDay(new Date().toISOString()), html: esc(text) });
+    socket.send(JSON.stringify({ type: 'voice_query', data: { id, text } }));
+    refreshMic();
+  }
+
+  function onVoiceReply(r) {
+    if (r.id !== pendingQuery) return; // an older question answered after a newer one was asked
+    pendingQuery = null;
+    addFeed({
+      key: 'a' + r.id,
+      cls: 'voice',
+      avatar: 'ENG',
+      meta: [timeOfDay(r.createdAt), r.lap != null ? `Lap ${r.lap}` : '', r.latencyMs ? `${(r.latencyMs / 1000).toFixed(1)}s` : '']
+        .filter(Boolean).join(' · '),
+      html: esc(r.reply),
+    });
+    showBar('speaking', 'Engineer', { reply: r.reply, hideAfterMs: 9000 });
+    if (!voice.listening) voice.speak(r.reply);
+    updateCost(r.totals);
+    refreshMic();
+  }
+
+  function onVoiceError(e) {
+    if (e.id !== pendingQuery) return;
+    pendingQuery = null;
+    showBar('error', 'Engineer unavailable', { reply: e.message, hideAfterMs: 6000 });
+    refreshMic();
+  }
+
+  /** Optionally read out new tire/strategy calls, without talking over the driver or an answer. */
+  function announce(text) {
+    if (!settings.readCalls || !voice.enabled || !text) return;
+    if (voice.state !== 'idle' || pendingQuery) return;
+    voice.speak(text);
+  }
+
+  // Mic button: first click enables voice; afterwards press and hold to talk
+  const micBtn = $('micBtn');
+  micBtn.addEventListener('pointerdown', async (e) => {
+    e.preventDefault();
+    if (!voice.enabled) {
+      try {
+        await voice.enable();
+        showBar('speaking', 'Voice ready', { heard: '', reply: 'Hold your wheel button (or V) to talk to the engineer.', hideAfterMs: 4000 });
+      } catch {
+        /* error already shown */
+      }
+      return;
+    }
+    micBtn.setPointerCapture?.(e.pointerId);
+    pttDown();
+  });
+  micBtn.addEventListener('pointerup', () => voice.enabled && pttUp());
+  micBtn.addEventListener('pointercancel', () => voice.enabled && pttUp());
+
+  // Keyboard: hold V while the dashboard has focus
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat || e.key.toLowerCase() !== 'v' || e.target.closest('input, select, textarea')) return;
+    pttDown();
+  });
+  document.addEventListener('keyup', (e) => {
+    if (e.key.toLowerCase() === 'v') pttUp();
+  });
+
+  // Wheel button
+  wheel.addEventListener('press', pttDown);
+  wheel.addEventListener('release', pttUp);
+  wheel.addEventListener('devices', renderPttInfo);
+  wheel.start();
+
+  function renderPttInfo() {
+    const device = settings.pttGamepadId ? settings.pttGamepadName || 'assigned device' : 'any device';
+    $('pttBinding').textContent = `Wheel button: ${device} · button ${settings.pttButton}`;
+    const devices = wheel.devices();
+    $('pttDevices').textContent = !wheel.supported
+      ? 'This browser can’t read wheels (no Gamepad API).'
+      : devices.length
+        ? `Detected: ${devices.map((d) => d.name).join(', ')}`
+        : 'No wheel detected yet: press any button on it.';
+  }
+
+  $('pttAssign').addEventListener('click', async () => {
+    const btn = $('pttAssign');
+    btn.textContent = 'Press a wheel button…';
+    btn.disabled = true;
+    try {
+      const b = await wheel.learn();
+      settings.pttGamepadId = b.gamepadId;
+      settings.pttGamepadName = b.gamepadName;
+      settings.pttButton = b.button;
+      wheel.setBinding({ gamepadId: b.gamepadId, button: b.button });
+      saveSettings();
+    } catch {
+      /* timed out or cancelled */
+    }
+    btn.textContent = 'Assign';
+    btn.disabled = false;
+    renderPttInfo();
+  });
+
+  // Voice settings
+  function fillVoiceList() {
+    const sel = $('voiceSelect');
+    const voices = voice.voices();
+    if (!voices.length) {
+      sel.innerHTML = '<option value="">Default voice</option>';
+      return;
+    }
+    const current = voice.pickVoice();
+    sel.innerHTML = voices
+      .map((v) => `<option value="${esc(v.name)}"${current && v.name === current.name ? ' selected' : ''}>${esc(v.name)} (${esc(v.lang)})</option>`)
+      .join('');
+  }
+  $('voiceSelect').addEventListener('change', (e) => {
+    settings.voiceName = e.target.value;
+    voice.voiceName = e.target.value || null;
+    saveSettings();
+  });
+  $('voiceRate').value = settings.voiceRate;
+  $('voiceRate').addEventListener('change', (e) => {
+    settings.voiceRate = Number(e.target.value) || 1.1;
+    voice.rate = settings.voiceRate;
+    saveSettings();
+  });
+  $('readCalls').checked = !!settings.readCalls;
+  $('readCalls').addEventListener('change', (e) => {
+    settings.readCalls = e.target.checked;
+    saveSettings();
+  });
+  $('voiceTest').addEventListener('click', async () => {
+    if (!voice.enabled) await voice.enable().catch(() => {});
+    voice.speak('Radio check. Copy that, box this lap for fuel and tires.');
+  });
+
+  fillVoiceList();
+  renderPttInfo();
+  refreshMic();
 
   // ---------- settings UI ----------
   const panel = $('settings');

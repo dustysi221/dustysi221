@@ -34,9 +34,11 @@ class ClaudeClient {
 
   /**
    * Sends one request whose answer must match `schema`.
+   * @param history  earlier turns ({ role, content } plain-text messages) to send before `payload`
+   * @param effort   overrides the client's default effort for this call
    * @returns {{ data: object, meta: { model, latencyMs, usage } }}
    */
-  async requestJson({ system, payload, schema, maxTokens = 8000 }) {
+  async requestJson({ system, payload, schema, maxTokens = 8000, history = [], effort = this.effort }) {
     if (!this.enabled) throw new Error('Claude API key not configured');
 
     const params = {
@@ -44,12 +46,15 @@ class ClaudeClient {
       max_tokens: maxTokens,
       output_config: { format: { type: 'json_schema', schema } },
       system,
-      messages: [{ role: 'user', content: typeof payload === 'string' ? payload : JSON.stringify(payload) }],
+      messages: [
+        ...history,
+        { role: 'user', content: typeof payload === 'string' ? payload : JSON.stringify(payload) },
+      ],
     };
     // Haiku 4.5 has no adaptive thinking or effort setting; it runs without thinking
     if (!this.model.startsWith('claude-haiku')) {
       params.thinking = { type: 'adaptive' };
-      params.output_config.effort = this.effort;
+      params.output_config.effort = effort;
     }
 
     const started = Date.now();
