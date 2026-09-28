@@ -28,6 +28,13 @@
    PIT_LOSS_SEC (35) and TIRE_WEAR_LIMIT_PERCENT (75) are guesses.
    Set them per track/car once you know the real values (see 06).
 
+5. DAMAGE AND CRASHES
+   The engineers now see body damage (8 zones), detached parts, flat tires,
+   engine overheating and the last impact, and whether the car is on track,
+   in the pit lane or in the garage. After a crash, ask "How bad is the
+   damage?". If it still says something wrong, send a screenshot of
+   http://localhost:3000/api/snapshot right after the crash ("damage" part).
+
 DONE SO FAR
 -----------
 - Live dashboard (tires, speed, RPM, fuel, laps) on a second monitor

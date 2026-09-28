@@ -42,6 +42,8 @@ window is focused.)
 -----------------------------------------------------------------
 3. VOICE SETTINGS (gear icon on the dashboard, remembered by the browser)
 -----------------------------------------------------------------
+c) Set "Speech language" to your accent (e.g. English (UK), English
+   (Australia)). The wrong one causes lots of misheard words.
 d) Pick an "Engineer voice" (Edge's "Natural" voices sound best).
 e) "Speech speed" if it talks too fast or slow.
 f) Click "Test voice" -> you should hear "Radio check...".
@@ -113,6 +115,16 @@ Red bar but no words       -> wrong mic: chrome://settings/content/microphone
                               and pick your headset mic.
 "Didn't catch that"        -> hold the whole time; start talking after the
                               red bar appears.
+Words come out wrong       -> (e.g. "world" instead of "wall")
+                              1. Set "Speech language" to your accent.
+                              2. Use a headset mic close to your mouth; pick
+                                 it in chrome://settings/content/microphone
+                                 (or edge://settings/content/microphone).
+                              3. Wait for the red bar, speak clearly, then
+                                 release. Short questions work best.
+                              The engineer also gets the recognizer's other
+                              guesses and fixes common racing mishearings,
+                              so small mistakes usually still work.
 "Claude is off"            -> no API key (see 03).
 Words appear, no sound     -> gear icon -> Test voice; check Windows sound
                               output is your headset.

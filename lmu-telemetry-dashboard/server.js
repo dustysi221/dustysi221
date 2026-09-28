@@ -334,14 +334,14 @@ async function runStrategy({ force = false } = {}) {
 }
 
 // Push-to-talk question from a dashboard: answer only that dashboard.
-async function handleVoiceQuery(ws, { id, text }) {
+async function handleVoiceQuery(ws, { id, text, alternatives }) {
   if (claude.enabled && (!config.aiEnabled || !config.voiceEngineer)) {
     const message = 'The voice engineer is turned off in the Control Panel';
     send(ws, { type: 'voice_error', data: { id, message, busy: false } });
     return;
   }
   try {
-    const answer = await voice.ask(text);
+    const answer = await voice.ask(text, { alternatives });
     log.info(`[voice] "${answer.question}" -> "${answer.reply}" (${answer.latencyMs} ms)`);
     send(ws, { type: 'voice_reply', data: { id, ...answer } });
   } catch (err) {

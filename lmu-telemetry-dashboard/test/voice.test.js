@@ -136,3 +136,30 @@ test('wheel input script loads and exposes WheelInput', () => {
   assert.equal(wheel.binding.gamepadId, null);
   assert.equal(wheel.supported, false); // no Gamepad API outside a browser
 });
+
+test('voice brief includes damage and where the car is', () => {
+  const ctx = context(300);
+  ctx.snapshot = {
+    ...ctx.snapshot,
+    vehicle: { ...ctx.snapshot.vehicle, speedKph: 0, inPits: false, inGarage: false },
+    damage: { maxDentSeverity: 2, dentedZones: { front: 2 }, partsDetached: true, flatTires: ['FL'], lastImpactSecAgo: 4 },
+  };
+  const brief = buildVoiceBrief(ctx);
+  assert.equal(brief.car.location, 'on track');
+  assert.equal(brief.car.stopped, true);
+  assert.equal(brief.damage.maxDentSeverity, 2);
+  assert.match(SYSTEM_PROMPT, /Never tell the driver the car is fine/);
+  assert.match(SYSTEM_PROMPT, /"world" is probably "wall"/);
+});
+
+test('speech recognition alternatives reach Claude, without duplicates', async () => {
+  const client = fakeClient('Copy, heavy front damage. Box this lap.');
+  const voice = new VoiceAssistant({ client, getContext: () => ({}) });
+  await voice.ask("I'm in the world I broke the car", {
+    alternatives: ["I'm in the wall I broke the car", "I'm in the world I broke the car", '', 42],
+  });
+  assert.deepEqual(client.calls[0].payload.other_possible_hearings, ["I'm in the wall I broke the car"]);
+
+  await voice.ask('Fuel?');
+  assert.equal('other_possible_hearings' in client.calls[1].payload, false);
+});

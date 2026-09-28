@@ -47,8 +47,16 @@ class VoiceAssistant {
    * @param {string} question  what the driver said
    * @returns {{ question, reply, lap, createdAt, model, latencyMs, usage, totals }}
    */
-  async ask(question) {
+  /**
+   * @param {string} question  what speech recognition heard (best guess)
+   * @param {{alternatives?: string[]}} [opts]  other guesses from speech recognition
+   */
+  async ask(question, { alternatives = [] } = {}) {
     const text = typeof question === 'string' ? question.trim().slice(0, MAX_QUESTION_CHARS) : '';
+    const others = (Array.isArray(alternatives) ? alternatives : [])
+      .filter((a) => typeof a === 'string' && a.trim() && a.trim() !== text)
+      .map((a) => a.trim().slice(0, MAX_QUESTION_CHARS))
+      .slice(0, 3);
     if (!text) throw new Error('Empty question');
     if (!this.enabled) throw new Error('Claude is off: add CLAUDE_API_KEY to .env to use the voice engineer');
     if (this.inFlight) throw new BusyError('Still answering your last question');
@@ -64,7 +72,11 @@ class VoiceAssistant {
 
       const { data, meta } = await this.client.requestJson({
         system: SYSTEM_PROMPT,
-        payload: { driver_question: text, live_data: brief },
+        payload: {
+          driver_question: text,
+          ...(others.length ? { other_possible_hearings: others } : {}),
+          live_data: brief,
+        },
         schema: SCHEMA,
         history,
         effort: this.effort,
@@ -126,6 +138,9 @@ function buildVoiceBrief(ctx = {}) {
     };
   }
 
+  const location = vehicle.inGarage ? 'garage' : vehicle.inPits ? 'pit lane' : 'on track';
+  const damage = snapshot.damage || null;
+
   const rival = (c) =>
     c ? { car: c.car, gapSec: c.gapSec, paceDeltaSecPerLap: c.paceDeltaSecPerLap, inPits: c.inPits } : null;
 
@@ -142,8 +157,10 @@ function buildVoiceBrief(ctx = {}) {
       fuelL: vehicle.fuelL,
       lastLapSec: vehicle.lastLapSec,
       bestLapSec: vehicle.bestLapSec,
-      inPits: vehicle.inPits,
+      location,
+      stopped: Number.isFinite(vehicle.speedKph) ? vehicle.speedKph < 5 : null,
     },
+    damage,
     session: {
       type: session.type,
       phase: session.phase,

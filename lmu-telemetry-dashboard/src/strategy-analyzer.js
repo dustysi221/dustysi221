@@ -324,10 +324,12 @@ Each message is a JSON strategy brief computed from live telemetry and the sessi
 - fuel: consumption per lap from clean laps, laps of fuel in the tank, fuel needed to finish including the reserve, shortfall, lastLapToPitForFuel (the last lap whose end you can safely reach the pit entry), stops needed for fuel
 - tires: per-tire wear % and wear per lap now vs at the start of the stint (basis "previous_stint" = no clean lap on this set yet, rate taken from the last set), the limiting tire, laps to the wear limit, lastLapToPitForTires, whether the tires reach the finish, wearAccelerationRatio (>1.15 = wear accelerating), laps a new set lasts, the tire engineer's latest verdict
 - competitors: class leader and the cars directly ahead/behind in class: gap, average pace and pace delta per lap vs you, pit stops made, whether they are in the pits
+- damage: body damage per zone (0 none, 1 some, 2 heavy), detached parts, flat or detached wheels, engine overheating, seconds since the last impact
 - reference: pit loss per stop (a configured estimate, not measured), wear limit, fuel reserve
 Lap numbers in pit_lap and pit_window_laps are absolute race laps; "box end of lap N" means entering the pits at the end of lap N.
 
 How to make the call:
+- Damage first: if damage shows heavy dents (2), detached parts, a flat or detached wheel, or engine overheating, the call is to box for repairs ("Box this lap, repairs"). Light dents (1) alone don't change the plan.
 - Hard limits first: never plan a pit lap later than fuel.lastLapToPitForFuel or tires.lastLapToPitForTires.
 - Combine fuel and tires in one stop where possible. Skip the tire change if the current set reaches the finish (tires.lastToFinish) and the tire engineer is not flagging a problem; a fuel-only stop is shorter.
 - Use the minimum number of stops that covers both fuel and tire needs (stopsNeededForFuel, stopsNeededForTires). If no stop is needed, the call is to stay out.
@@ -382,6 +384,7 @@ class StrategyAnalyzer {
         system: SYSTEM_PROMPT,
         payload: {
           car: { name: snapshot.vehicle.name, class: snapshot.vehicle.class },
+          damage: snapshot.damage || null,
           track: snapshot.session.trackName,
           ...metrics,
         },

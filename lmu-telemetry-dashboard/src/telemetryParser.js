@@ -81,6 +81,31 @@ function parseWheel(wheel, key) {
   };
 }
 
+const DENT_ZONES = ['front', 'frontRight', 'right', 'rearRight', 'rear', 'rearLeft', 'left', 'frontLeft'];
+
+/**
+ * Body damage and impacts. Dent severity per zone is 0 (none), 1 (some) or
+ * 2 (more). Impact magnitude is the game's own unit: compare, don't convert.
+ */
+function parseDamage(telem, tires) {
+  const dents = Array.from(telem.mDentSeverity || []);
+  const zones = {};
+  dents.forEach((v, i) => {
+    if (v > 0 && DENT_ZONES[i]) zones[DENT_ZONES[i]] = v;
+  });
+  const impactAgo = telem.mLastImpactET > 0 ? telem.mElapsedTime - telem.mLastImpactET : null;
+  return {
+    maxDentSeverity: dents.length ? Math.max(...dents) : 0,
+    dentedZones: zones,
+    partsDetached: Boolean(telem.mDetached),
+    engineOverheating: Boolean(telem.mOverheating),
+    flatTires: Object.keys(tires).filter((k) => tires[k].flat),
+    detachedWheels: Object.keys(tires).filter((k) => tires[k].detached),
+    lastImpactSecAgo: impactAgo !== null && impactAgo >= 0 ? round(impactAgo, 1) : null,
+    lastImpactMagnitude: telem.mLastImpactET > 0 ? round(telem.mLastImpactMagnitude, 0) : null,
+  };
+}
+
 function readScoring(scoringBuf) {
   const header = koffi.decode(scoringBuf, rF2ScoringHeader);
   const info = header.mScoringInfo;
@@ -188,6 +213,7 @@ function parseSnapshot(raw) {
       lapDistanceM: player ? round(player.mLapDist, 0) : null,
       currentLapSec: telem.mLapStartET > 0 || telem.mElapsedTime > 0 ? round(telem.mElapsedTime - telem.mLapStartET, 3) : null,
       inPits: player ? player.mInPits : false,
+      inGarage: player ? player.mInGarageStall : false,
       pitStops: player ? player.mNumPitstops : null,
       speedKph: round(speedMs * 3.6, 1),
       gear: telem.mGear,
@@ -201,6 +227,7 @@ function parseSnapshot(raw) {
       rearCompound: telem.mRearTireCompoundName,
     },
     tires,
+    damage: parseDamage(telem, tires),
     // Every car in the session. Not broadcast at 10 Hz; used by the strategy module.
     field,
   };

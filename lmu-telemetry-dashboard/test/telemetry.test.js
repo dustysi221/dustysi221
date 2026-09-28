@@ -147,3 +147,39 @@ test('server streams telemetry over ws://.../telemetry at ~10 Hz', async (t) => 
   assert.equal(last.live, true);
   assert.ok(last.tires.FL.pressureKpa > 0);
 });
+
+test('damage: dents, detached parts, flats and the last impact are parsed', () => {
+  const stride = koffi.sizeof(L.rF2VehicleTelemetry);
+  const telemetry = Buffer.alloc(L.TELEMETRY_VEHICLES_OFFSET + stride);
+  koffi.encode(telemetry, 0, L.rF2TelemetryHeader, { mNumVehicles: 1 });
+  const wheels = [{ mFlat: true }, {}, {}, { mDetached: true }].map((w) => ({ mWear: 1, mTemperature: [300, 300, 300], ...w }));
+  koffi.encode(telemetry, L.TELEMETRY_VEHICLES_OFFSET, L.rF2VehicleTelemetry, {
+    mID: 1,
+    mElapsedTime: 500,
+    mLastImpactET: 497.5,
+    mLastImpactMagnitude: 5400,
+    mDentSeverity: [2, 1, 0, 0, 0, 0, 0, 2],
+    mDetached: true,
+    mWheels: wheels,
+  });
+  const scoring = Buffer.alloc(L.SCORING_VEHICLES_OFFSET + koffi.sizeof(L.rF2VehicleScoring));
+  koffi.encode(scoring, 0, L.rF2ScoringHeader, { mScoringInfo: { mNumVehicles: 1 } });
+  koffi.encode(scoring, L.SCORING_VEHICLES_OFFSET, L.rF2VehicleScoring, { mID: 1, mIsPlayer: true, mInGarageStall: true });
+
+  const snap = parseSnapshot({ telemetry, scoring });
+  assert.deepEqual(snap.damage, {
+    maxDentSeverity: 2,
+    dentedZones: { front: 2, frontRight: 1, frontLeft: 2 },
+    partsDetached: true,
+    engineOverheating: false,
+    flatTires: ['FL'],
+    detachedWheels: ['RR'],
+    lastImpactSecAgo: 2.5,
+    lastImpactMagnitude: 5400,
+  });
+  assert.equal(snap.vehicle.inGarage, true);
+
+  const clean = parseSnapshot(new MockSource().read()).damage;
+  assert.equal(clean.maxDentSeverity, 0);
+  assert.equal(clean.lastImpactSecAgo, null);
+});

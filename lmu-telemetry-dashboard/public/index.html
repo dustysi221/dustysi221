@@ -378,6 +378,19 @@
   <div class="row"><span class="hint" id="pttBinding" style="flex:1">Wheel button: any device · button 0</span><button id="pttAssign">Assign</button></div>
   <div class="hint" id="pttDevices">No wheel detected yet: press any button on it.</div>
   <div class="hint">Or hold <b>V</b> (dashboard focused), or hold the mic button.</div>
+  <label>Speech language
+    <select id="voiceLang" class="wide" style="width:150px">
+      <option value="">Browser default</option>
+      <option value="en-US">English (US)</option>
+      <option value="en-GB">English (UK)</option>
+      <option value="en-AU">English (Australia)</option>
+      <option value="en-CA">English (Canada)</option>
+      <option value="en-IE">English (Ireland)</option>
+      <option value="en-IN">English (India)</option>
+      <option value="en-NZ">English (New Zealand)</option>
+      <option value="en-ZA">English (South Africa)</option>
+    </select>
+  </label>
   <label>Engineer voice</label>
   <select id="voiceSelect" class="wide"></select>
   <label>Speech speed <input type="range" id="voiceRate" min="0.8" max="1.5" step="0.05"></label>
@@ -503,7 +516,7 @@
     optMin: 75, optMax: 100, pressureUnit: 'psi', speedUnit: 'kph',
     // push-to-talk: button 0 on any connected wheel/controller until one is assigned
     pttGamepadId: null, pttGamepadName: null, pttButton: 0,
-    voiceName: '', voiceRate: 1.1, readCalls: false,
+    voiceName: '', voiceRate: 1.1, readCalls: false, voiceLang: '',
   };
   const savedSettings = loadSettings();
   const settings = { ...defaults, ...savedSettings };
@@ -922,7 +935,11 @@
 
 
   // ---------- voice: push to talk ----------
-  const voice = new VoiceEngine({ voiceName: settings.voiceName || null, rate: settings.voiceRate });
+  const voice = new VoiceEngine({
+    lang: settings.voiceLang || undefined,
+    voiceName: settings.voiceName || null,
+    rate: settings.voiceRate,
+  });
   const wheel = new WheelInput({
     binding: { gamepadId: settings.pttGamepadId, button: settings.pttButton },
   });
@@ -985,7 +1002,7 @@
       showBar('error', 'Didn’t catch that', { heard: '', reply: 'Hold the button and speak, then release.', hideAfterMs: 3000 });
       return;
     }
-    askEngineer(text);
+    askEngineer(text, e.detail.alternatives || []);
   });
 
   voice.addEventListener('error', (e) => {
@@ -996,7 +1013,7 @@
   voice.addEventListener('enabled', refreshMic);
   voice.addEventListener('voices', fillVoiceList);
 
-  function askEngineer(text) {
+  function askEngineer(text, alternatives = []) {
     if (!socketOpen) {
       showBar('error', 'Server offline', { heard: text, reply: 'The dashboard isn’t connected to the server.', hideAfterMs: 5000 });
       return;
@@ -1012,7 +1029,7 @@
     pendingQuery = id;
     showBar('thinking', 'Engineer is thinking…', { heard: text, reply: '' });
     addFeed({ key: 'q' + id, cls: 'driver', avatar: 'YOU', meta: timeOfDay(new Date().toISOString()), html: esc(text) });
-    socket.send(JSON.stringify({ type: 'voice_query', data: { id, text } }));
+    socket.send(JSON.stringify({ type: 'voice_query', data: { id, text, alternatives } }));
     refreshMic();
   }
 
@@ -1153,6 +1170,13 @@
     settings.voiceName = e.target.value;
     voice.voiceName = e.target.value || null;
     saveSettings();
+  });
+  $('voiceLang').value = settings.voiceLang || '';
+  $('voiceLang').addEventListener('change', (e) => {
+    settings.voiceLang = e.target.value;
+    voice.lang = e.target.value || navigator.language || 'en-US';
+    saveSettings();
+    fillVoiceList();
   });
   $('voiceRate').value = settings.voiceRate;
   $('voiceRate').addEventListener('change', (e) => {

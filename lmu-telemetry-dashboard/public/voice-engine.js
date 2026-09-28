@@ -12,7 +12,8 @@
  * Events (CustomEvent.detail):
  *   'state'   { state: 'idle' | 'listening' | 'processing' | 'speaking' }
  *   'interim' { text }            live transcript while talking
- *   'final'   { text }            what was heard once the button is released ('' if nothing)
+ *   'final'   { text, alternatives }  what was heard once the button is released ('' if nothing),
+ *                                     plus the recognizer's other guesses
  *   'error'   { code, message }
  *
  * Browser notes: Chrome and Edge support SpeechRecognition (they send the audio
@@ -50,6 +51,7 @@
 
       this.rec = null;
       this.finalText = '';
+      this.finalSegments = []; // per final result: [best guess, alternative, ...]
       this.interimText = '';
       this.listenStartedAt = 0;
       this.discard = false;
@@ -105,9 +107,10 @@
       rec.lang = this.lang;
       rec.continuous = true;
       rec.interimResults = true;
-      rec.maxAlternatives = 1;
+      rec.maxAlternatives = 3; // other guesses help the engineer decode misheard words
 
       this.finalText = '';
+      this.finalSegments = [];
       this.interimText = '';
       this.discard = false;
       this.listenStartedAt = Date.now();
@@ -116,8 +119,12 @@
         let interim = '';
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const r = e.results[i];
-          if (r.isFinal) this.finalText += r[0].transcript;
-          else interim += r[0].transcript;
+          if (r.isFinal) {
+            this.finalText += r[0].transcript;
+            this.finalSegments.push(Array.from({ length: r.length }, (_, j) => r[j].transcript));
+          } else {
+            interim += r[0].transcript;
+          }
         }
         this.interimText = interim;
         this.#emit('interim', { text: (this.finalText + ' ' + interim).trim() });
@@ -137,7 +144,7 @@
           return;
         }
         this.#setState('idle');
-        this.#emit('final', { text });
+        this.#emit('final', { text, alternatives: this.#alternatives(text) });
       };
 
       try {
@@ -149,6 +156,19 @@
       this.rec = rec;
       this.#setState('listening');
       this.maxTimer = setTimeout(() => this.stopListening(), MAX_LISTEN_MS);
+    }
+
+    /** Full-sentence alternatives built from each final result's other guesses. */
+    #alternatives(best) {
+      const out = [];
+      for (let k = 1; k < 3; k++) {
+        if (!this.finalSegments.some((seg) => seg[k])) continue;
+        const alt = (this.finalSegments.map((seg) => seg[k] || seg[0]).join(' ') + ' ' + this.interimText)
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (alt && alt !== best && !out.includes(alt)) out.push(alt);
+      }
+      return out;
     }
 
     /** Stop recording; the transcript arrives as a 'final' event shortly after. */
