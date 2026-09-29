@@ -140,6 +140,7 @@ function parseCompetitor(v) {
     timeBehindLeaderSec: round(v.mTimeBehindLeader, 3),
     lapsBehindLeader: v.mLapsBehindLeader,
     inPits: v.mInPits,
+    inGarage: v.mInGarageStall,
     pitStops: v.mNumPitstops,
     finishStatus: v.mFinishStatus, // 0 none, 1 finished, 2 DNF, 3 DQ
     lapDistM: round(v.mLapDist, 0),
@@ -182,7 +183,8 @@ function parseFlags(info, rulesBuf, field) {
 
   // rF2 orders mSectorFlag like mSector: [sector 3, sector 1, sector 2]
   const raw = Array.isArray(info.mSectorFlag) ? info.mSectorFlag : [0, 0, 0];
-  const sectorYellow = [raw[1] > 0, raw[2] > 0, raw[0] > 0];
+  // Only 1 means a yellow; LMU leaves other non-zero values in here under green
+  const sectorYellow = [raw[1] === 1, raw[2] === 1, raw[0] === 1];
   const fullCourse = info.mGamePhase === 6;
   const running = info.mGamePhase === 5 || fullCourse;
 
@@ -193,7 +195,7 @@ function parseFlags(info, rulesBuf, field) {
   // Under a full-course yellow everyone is slow, so only stopped cars count then
   const slowKph = fullCourse ? STOPPED_KPH : SLOW_CAR_KPH;
   const slowCars = running
-    ? field.filter((c) => !c.inPits && c.finishStatus === 0 && c.speedKph != null && c.speedKph < slowKph).map((c) => c.id)
+    ? field.filter((c) => !c.inPits && !c.inGarage && c.finishStatus === 0 && c.speedKph != null && c.speedKph < slowKph).map((c) => c.id)
     : [];
 
   return {
@@ -204,6 +206,9 @@ function parseFlags(info, rulesBuf, field) {
     yellowLaps: fullCourse && rules ? rules.yellowLaps : null,
     rulesAvailable: !!rules,
     slowCars,
+    // Raw values for checking against the game (/api/snapshot): [sector 3, 1, 2] as rF2 sends them
+    rawSectorFlags: raw.slice(0, 3),
+    rawYellowFlagState: info.mYellowFlagState,
   };
 }
 
@@ -231,6 +236,27 @@ function sectorTimes(p) {
     bestSectors: [secTime(p.mBestSector1), p.mBestSector2 > 0 && p.mBestSector1 > 0 ? round(p.mBestSector2 - p.mBestSector1, 3) : null, null],
     bestLap: split(p.mBestLapSector1, p.mBestLapSector2, p.mBestLapTime),
   };
+}
+
+/**
+ * Lap distance brought up to the telemetry frame. Scoring (and its mLapDist)
+ * only updates ~5 times a second, telemetry much more often, so:
+ * - add the distance driven since the scoring update
+ * - just after the line, telemetry already has the new lap while scoring still
+ *   has ~full-lap distance of the old one: count from the lap start instead
+ */
+const MAX_SCORING_AGE_SEC = 0.6;
+function playerLapDistance(player, telem, info, speedMs) {
+  if (!player) return null;
+  const lapLen = info.mLapDist > 0 ? info.mLapDist : Infinity;
+  let dist;
+  if (telem.mLapStartET > info.mCurrentET) {
+    dist = speedMs * (telem.mElapsedTime - telem.mLapStartET);
+  } else {
+    const age = telem.mElapsedTime - info.mCurrentET;
+    dist = player.mLapDist + (age > 0 && age < MAX_SCORING_AGE_SEC ? speedMs * age : 0);
+  }
+  return round(Math.max(0, Math.min(dist, lapLen)), 0);
 }
 
 function classPosition(field, player) {
@@ -300,7 +326,10 @@ function parseSnapshot(raw) {
       classPosition: classPosition(field, player),
       lastLapSec: player ? lapTime(player.mLastLapTime) : null,
       bestLapSec: player ? lapTime(player.mBestLapTime) : null,
-      lapDistanceM: player ? round(player.mLapDist, 0) : null,
+      lapDistanceM: playerLapDistance(player, telem, info, speedMs),
+      // True for a moment after the line, while scoring (laps completed, last
+      // lap time, sectors) still describes the previous lap
+      scoringLapBehind: !!player && telem.mLapStartET > info.mCurrentET,
       currentLapSec: telem.mLapStartET > 0 || telem.mElapsedTime > 0 ? round(telem.mElapsedTime - telem.mLapStartET, 3) : null,
       inPits: player ? player.mInPits : false,
       inGarage: player ? player.mInGarageStall : false,

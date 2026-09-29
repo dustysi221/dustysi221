@@ -73,7 +73,8 @@ function lapEndsReachable(lapsAvailable, lapFraction, margin) {
 function computeStrategyMetrics(snapshot, tracker, options = {}) {
   const opts = { ...DEFAULTS, ...options };
   const { session, vehicle, tires } = snapshot;
-  const currentLap = (vehicle.lapsCompleted ?? vehicle.lap - 1) + 1;
+  // lapDistanceM is already on the new lap when scoring hasn't caught up yet
+  const currentLap = (vehicle.lapsCompleted ?? vehicle.lap - 1) + 1 + (vehicle.scoringLapBehind ? 1 : 0);
   const lapFraction =
     vehicle.lapDistanceM != null && session.lapDistanceM ? Math.min(0.999, vehicle.lapDistanceM / session.lapDistanceM) : 0.5;
 

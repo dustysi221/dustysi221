@@ -19,7 +19,8 @@ Top bar     Session, time left, lap, position, last / best lap, and the
 Timing      Every car: position, class color, gap, last lap, best lap.
 (left)      "Leader" = gap to P1, "Interval" = gap to the car ahead.
             PIT = in the pits. FL = fastest lap of the session.
-            Your row is highlighted. On smaller screens the Last column is
+            Your row is highlighted. In practice and qualifying the gap is
+            the difference in best lap (like the official timing screens). On smaller screens the Last column is
             hidden; hover a car on the track map to see it.
 
 Traces      Speed, throttle, brake, gear, RPM and steering over one lap.
@@ -27,7 +28,8 @@ Traces      Speed, throttle, brake, gear, RPM and steering over one lap.
             The top strip is the delta: going up means losing time there.
             Move the mouse over the traces to compare both laps at that spot.
 
-Sectors     Your sector times. Green = personal best, yellow = slower.
+Sectors     Your sector times against your best CLEAN lap (out laps and pit
+            laps don't count). Green = faster (a new best), yellow = slower.
 Laps        One row per lap: time, difference to best, sectors, top speed,
             fuel used. The green dot marks your best lap. Grey = out lap,
             pit lap or a lap you joined halfway (not used as a reference).

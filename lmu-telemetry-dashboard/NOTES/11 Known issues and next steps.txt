@@ -48,3 +48,8 @@ FLAGS ON THE ENGINEER MAP (new, not yet checked in the real game)
   check that a yellow shows in the right sector, and that an FCY and a
   safety car are told apart. If the sector is wrong, tell me which sector
   LMU showed and which one the map showed.
+  Fixed: the map used to show yellow in every sector all the time (LMU puts
+  other numbers in the flag data under green). Now only a real yellow counts.
+  If a yellow in LMU does NOT show on the map, open
+  http://localhost:3000/api/snapshot while it is out and send me the
+  "rawSectorFlags" numbers.

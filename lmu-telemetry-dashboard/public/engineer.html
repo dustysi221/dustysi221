@@ -195,6 +195,10 @@
   }
   @media (max-width: 1100px) {
     body { height: auto; overflow: auto; }
+    header { flex-wrap: wrap; }
+    .hbox.track { flex-basis: 220px; }
+    .carname, .driver { max-width: none; }
+    .col-last { display: table-cell; }
     main { grid-template-columns: 1fr; }
     .center { grid-template-rows: 520px auto; }
     .right { grid-template-rows: 360px auto auto; }
@@ -356,10 +360,17 @@
       startLap(v, false);
     }
 
+    settlePendingLap(v);
+
     const dist = v.lapDistanceM;
     const t = v.currentLapSec;
     if (Number.isFinite(dist) && Number.isFinite(t) && d.live) {
-      const last = lap.samples[lap.samples.length - 1];
+      let last = lap.samples[lap.samples.length - 1];
+      // Early in a lap, a far-away distance is the old lap's (the game's lap
+      // distance updates later than its lap counter): drop those samples
+      // instead of letting them block the rest of the lap
+      if (lapLength && t < 10 && dist > lapLength * 0.5) last = { d: Infinity };
+      else if (last && lapLength && last.d - dist > lapLength * 0.5) { lap.samples = []; last = null; }
       if (!last || dist >= last.d) {
         const sample = {
           d: dist, t,
@@ -396,20 +407,38 @@
     const samples = lap.samples;
     if (!samples.length) return;
     const lastSample = samples[samples.length - 1];
-    const time = v.lastLapSec > 0 && Math.abs(v.lastLapSec - lastSample.t) < 3 ? v.lastLapSec : lastSample.t;
     const covered = lapLength && samples[0].d < lapLength * 0.05 && lastSample.d > lapLength * 0.95;
     const entry = {
       lap: lap.number,
-      time,
+      time: lastSample.t, // provisional: our own timing until the game's official time arrives
       valid: !lap.partial && !lap.pitted && covered,
-      sectors: v.sectors ? v.sectors.lastLap : null,
+      sectors: null,
       vmax: lap.vmax,
       fuel: lap.startFuel != null && v.fuelL != null && lap.startFuel > v.fuelL ? lap.startFuel - v.fuelL : null,
       samples,
+      // Right at the line the game still reports the previous lap's time and
+      // sectors for a moment; wait for them to change before taking them
+      pending: { until: Date.now() + 5000 },
     };
     history.push(entry);
     if (history.length > 30) history.shift();
-    if (entry.valid && (!bestLap || entry.time < bestLap.time)) bestLap = entry;
+    settlePendingLap(v);
+  }
+
+  /** Take the game's lap time and sectors once they belong to the lap we just finished. */
+  function settlePendingLap(v) {
+    const e = history[history.length - 1];
+    if (!e || !e.pending) return;
+    // scoringLapBehind: the game hasn't published the finished lap's numbers yet
+    const fresh = !v.scoringLapBehind && v.lastLapSec > 0 && Math.abs(v.lastLapSec - e.time) < 3;
+    if (!fresh && Date.now() < e.pending.until) return;
+    if (fresh) {
+      e.time = v.lastLapSec;
+      e.sectors = v.sectors ? v.sectors.lastLap : null;
+    }
+    e.pending = null;
+    if (e.valid && (!bestLap || e.time < bestLap.time)) bestLap = e;
+    renderLaps();
   }
 
   /** Time difference to the best lap at the same distance (+ = slower). */
@@ -824,7 +853,11 @@
       ctx.stroke();
       ctx.fillStyle = css('--text');
       ctx.font = '700 10px "Segoe UI", sans-serif';
-      ctx.fillText('YOU', px(myX) + 11, py(myZ) + 4);
+      // Label on the left when the car is near the right edge
+      const flip = px(myX) + 40 > w;
+      ctx.textAlign = flip ? 'right' : 'left';
+      ctx.fillText('YOU', px(myX) + (flip ? -11 : 11), py(myZ) + 4);
+      ctx.textAlign = 'left';
     }
 
     // Slow or stopped cars: a warning triangle above the dot (drawn last so it stays on top)
@@ -953,15 +986,22 @@
     const classes = [...new Set(standings.map((c) => c.class))];
     const fastest = Math.min(...standings.map((c) => (c.bestLapSec > 0 ? c.bestLapSec : Infinity)));
     const multiClass = classes.length > 1;
+    // Practice and qualifying are ordered by best lap, so gaps are best-lap differences
+    const byBestLap = snap && snap.session.type !== 'race';
+    const gapText = (sec) => (sec == null || !Number.isFinite(sec) ? '—' : `${sec < 0 ? '−' : '+'}${Math.abs(sec).toFixed(sec < 10 && byBestLap ? 3 : 1)}`);
     body.innerHTML = standings.map((c, i) => {
       let gap;
-      if (gapMode === 'leader') {
-        gap = c.pos === 1 ? 'Leader' : c.lapsDown > 0 ? `+${c.lapsDown} lap${c.lapsDown > 1 ? 's' : ''}` : c.gapToLeaderSec != null ? `+${c.gapToLeaderSec.toFixed(1)}` : '—';
+      if (byBestLap) {
+        const ref = gapMode === 'leader' ? standings[0] : standings[i - 1];
+        gap = i === 0 ? (c.bestLapSec > 0 ? 'Fastest' : '—')
+          : c.bestLapSec > 0 && ref && ref.bestLapSec > 0 ? gapText(c.bestLapSec - ref.bestLapSec) : 'No time';
+      } else if (gapMode === 'leader') {
+        gap = c.pos === 1 ? 'Leader' : c.lapsDown > 0 ? `+${c.lapsDown} lap${c.lapsDown > 1 ? 's' : ''}` : gapText(c.gapToLeaderSec);
       } else {
         const ahead = standings[i - 1];
         gap = !ahead ? 'Leader'
           : c.lapsDown > (ahead.lapsDown || 0) ? `+${c.lapsDown - (ahead.lapsDown || 0)} lap`
-          : c.gapToLeaderSec != null && ahead.gapToLeaderSec != null ? `+${(c.gapToLeaderSec - ahead.gapToLeaderSec).toFixed(1)}` : '—';
+          : c.gapToLeaderSec != null && ahead.gapToLeaderSec != null ? gapText(c.gapToLeaderSec - ahead.gapToLeaderSec) : '—';
       }
       const clsColor = CLASS_COLORS[classes.indexOf(c.class)] || 'var(--muted)';
       const isFastest = c.bestLapSec > 0 && c.bestLapSec === fastest;
@@ -992,27 +1032,30 @@
       return;
     }
     const s = snap.vehicle.sectors;
-    const bestSplits = s.bestLap || [];
-    const pbSectors = [0, 1, 2].map((i) => {
-      const vals = history.filter((l) => l.valid && l.sectors && l.sectors[i] > 0).map((l) => l.sectors[i]);
-      const game = (s.bestSectors || [])[i];
-      if (game > 0) vals.push(game);
+    // Reference: your best sector on clean laps only (out laps and pit laps
+    // don't count; the game's own "best sector" includes them)
+    const lastEntry = history[history.length - 1];
+    const bestSector = (i, exclude) => {
+      const vals = history
+        .filter((l) => l !== exclude && l.valid && l.sectors && l.sectors[i] > 0)
+        .map((l) => l.sectors[i]);
       return vals.length ? Math.min(...vals) : null;
-    });
+    };
     // Completed sectors of this lap, or last lap's when we're past them
     const current = s.current || 1;
     $('sectors').innerHTML = [0, 1, 2].map((i) => {
       const done = i < current - 1;
       const time = done ? s.currentLap[i] : null;
       const shown = time ?? (s.lastLap || [])[i];
-      const ref = pbSectors[i] ?? bestSplits[i];
+      // Compare with the best of the *other* laps, so a new best shows how much it gained
+      const ref = bestSector(i, time != null ? null : lastEntry);
       const d = shown != null && ref != null ? shown - ref : null;
       const cls = d == null ? '' : d <= 0.0005 ? 'pbc' : 'slow';
-      const label = time != null ? (d != null && d <= 0.0005 ? 'PERSONAL BEST' : 'THIS LAP') : shown != null ? 'LAST LAP' : '';
+      const label = shown == null ? '' : `${time != null ? 'THIS LAP' : 'LAST LAP'}${d != null && d <= 0.0005 ? ' · BEST' : ''}`;
       return `<div class="sector${i === current - 1 ? ' active' : ''}">
         <span class="k">Sector ${i + 1}${i === current - 1 ? ' · now' : ''}</span>
         <span class="t num">${shown != null ? shown.toFixed(3) : '—'}</span>
-        <span class="d num ${cls}">${d != null ? signed(d) : ref != null ? `best ${ref.toFixed(3)}` : '—'}</span>
+        <span class="d num ${cls}">${d != null ? signed(d) : '—'}</span>
         <span class="badge ${cls}">${label}</span>
       </div>`;
     }).join('');
@@ -1065,7 +1108,7 @@
       else if (msg.type === 'hello' || msg.type === 'status') {
         status = msg.data;
         setConn(!status.connected ? 'off' : status.live ? 'live' : 'paused',
-          !status.connected ? 'Waiting for LMU' : status.live ? `Live${status.source === 'mock' ? ' · sim' : ''}` : 'Paused');
+          !status.connected ? (snap ? 'No updates · garage or menu?' : 'Waiting for LMU') : status.live ? `Live${status.source === 'mock' ? ' · sim' : ''}` : 'Paused');
       }
     });
     ws.addEventListener('close', () => {

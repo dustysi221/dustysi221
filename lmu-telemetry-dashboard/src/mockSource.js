@@ -128,10 +128,14 @@ class MockSource {
       };
     });
 
-    // Reported lap times: tire age costs ~0.06 s/lap, the pit lap carries the stop
-    const lastStintAge = Math.max(0, lapsDone - 1 - this.stintStartProgress);
-    let lastLapSec = LAP_SECONDS + lastStintAge * 0.06 + Math.sin(lapsDone * 1.3) * 0.15;
-    if (this.lastPitLap === lapsDone - 1) lastLapSec += PIT_LOSS_SEC;
+    // Like the game, scoring updates 5 times a second and lags telemetry by
+    // 0.1-0.3 s, so just after the line it still shows the previous lap
+    const sElapsed = Math.max(0, Math.floor((elapsed - 0.1) * 5) / 5);
+    const sProgress = sElapsed / LAP_SECONDS;
+    const sLapsDone = Math.floor(sProgress);
+    const sLapFrac = sProgress - sLapsDone;
+    const sInPits = this.lastPitLap === sLapsDone && sLapFrac < PIT_LANE_FRACTION;
+    const lastLapSec = this.#lastLapTime(sLapsDone);
 
     this.version++;
     const telemetry = Buffer.alloc(TELEMETRY_VEHICLES_OFFSET + koffi.sizeof(rF2VehicleTelemetry));
@@ -167,19 +171,19 @@ class MockSource {
       {
         ...PLAYER,
         isPlayer: true,
-        distance: progress - (this.pitStops * PIT_LOSS_SEC) / LAP_SECONDS,
+        distance: sProgress - (this.pitStops * PIT_LOSS_SEC) / LAP_SECONDS,
         lapSec: LAP_SECONDS,
-        lapsDone,
-        lastLapSec: lapsDone > 0 ? lastLapSec : -1,
-        bestLapSec: lapsDone > 0 ? LAP_SECONDS - 0.1 : -1,
+        lapsDone: sLapsDone,
+        lastLapSec: sLapsDone > 0 ? lastLapSec : -1,
+        bestLapSec: sLapsDone > 0 ? LAP_SECONDS - 0.1 : -1,
         pitStops: this.pitStops,
-        inPits,
-        lapDist: lapFrac * LAP_METERS,
-        pos: trackPos(lapFrac),
+        inPits: sInPits,
+        lapDist: sLapFrac * LAP_METERS,
+        pos: trackPos(sLapFrac),
         speedKph,
-        sectors: sectorData(lapFrac, lapsDone > 0 ? lastLapSec : -1, lapsDone > 0 ? LAP_SECONDS - 0.1 : -1),
+        sectors: sectorData(sLapFrac, sLapsDone > 0 ? lastLapSec : -1, sLapsDone > 0 ? LAP_SECONDS - 0.1 : -1),
       },
-      ...AI_CARS.map((car) => aiState(car, elapsed, rc)),
+      ...AI_CARS.map((car) => aiState(car, sElapsed, rc)),
     ].sort((a, b) => b.distance - a.distance);
     const leader = cars[0];
 
@@ -189,7 +193,7 @@ class MockSource {
       mScoringInfo: {
         mTrackName: 'Mock Circuit',
         mSession: 10, // race
-        mCurrentET: elapsed,
+        mCurrentET: sElapsed,
         mEndET: RACE_SECONDS,
         mMaxLaps: 2147483647, // timed race: no lap limit
         mLapDist: LAP_METERS,
@@ -230,7 +234,7 @@ class MockSource {
     koffi.encode(rules, 0, rF2RulesHeader, {
       version: { mVersionUpdateBegin: this.version, mVersionUpdateEnd: this.version },
       mTrackRules: {
-        mCurrentET: elapsed,
+        mCurrentET: sElapsed,
         mStage: rc.phase === 6 ? 4 : 2,
         mNumParticipants: cars.length,
         mSafetyCarExists: true,
@@ -244,6 +248,14 @@ class MockSource {
     });
 
     return { telemetry, scoring, rules, telemetryVersion: this.version };
+  }
+
+  /** Reported time of lap `n` (1-based count of completed laps): tire age costs ~0.06 s/lap, the pit lap carries the stop. */
+  #lastLapTime(n) {
+    const stintAge = Math.max(0, n - 1 - this.stintStartProgress);
+    let t = LAP_SECONDS + stintAge * 0.06 + Math.sin(n * 1.3) * 0.15;
+    if (this.lastPitLap === n - 1) t += PIT_LOSS_SEC;
+    return t;
   }
 
   // At each new lap, box if the car can't complete another lap and a half.

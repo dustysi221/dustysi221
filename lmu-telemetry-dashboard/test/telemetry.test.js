@@ -266,3 +266,56 @@ test('flags ignore a stale Rules buffer (online, rules run on the server)', () =
     Date.now = realNow;
   }
 });
+
+/** Raw simulator buffers at `seconds` of race time. */
+function rawAt(seconds) {
+  const realNow = Date.now;
+  const base = realNow();
+  Date.now = () => base;
+  try {
+    const mock = new MockSource();
+    mock.startedAt = base - seconds * 1000;
+    return mock.read();
+  } finally {
+    Date.now = realNow;
+  }
+}
+
+test('lap distance: right after the line it restarts from 0, not the stale scoring distance', () => {
+  // Scoring lags telemetry: at 100.05 s telemetry is on lap 2, scoring still at the end of lap 1
+  const raw = rawAt(100.05);
+  const scoringPlayer = (() => {
+    const n = koffi.decode(raw.scoring, L.rF2ScoringHeader).mScoringInfo.mNumVehicles;
+    for (let i = 0; i < n; i++) {
+      const v = koffi.decode(raw.scoring, L.SCORING_VEHICLES_OFFSET + i * koffi.sizeof(L.rF2VehicleScoring), L.rF2VehicleScoring);
+      if (v.mIsPlayer) return v;
+    }
+    return null;
+  })();
+  assert.ok(scoringPlayer.mLapDist > 5300, 'scoring still has the old lap');
+  const v = parseSnapshot(raw).vehicle;
+  assert.equal(v.lap, 2);
+  assert.ok(v.lapDistanceM < 50, `lap distance ${v.lapDistanceM}`);
+
+  // Mid-lap, the distance is brought forward from the last scoring update
+  const mid = parseSnapshot(rawAt(50.05)).vehicle.lapDistanceM;
+  assert.ok(Math.abs(mid - 50.05 * 54) < 30, `mid-lap distance ${mid}`);
+});
+
+test('flags: only sector flag value 1 is a yellow, and cars in the garage are not slow cars', () => {
+  const raw = rawAt(350); // local yellow, #77 stopped on track
+  const header = koffi.decode(raw.scoring, L.rF2ScoringHeader);
+  header.mScoringInfo.mSectorFlag = [11, 11, 11]; // what LMU can leave there under green
+  koffi.encode(raw.scoring, 0, L.rF2ScoringHeader, header);
+  const n = header.mScoringInfo.mNumVehicles;
+  for (let i = 0; i < n; i++) {
+    const off = L.SCORING_VEHICLES_OFFSET + i * koffi.sizeof(L.rF2VehicleScoring);
+    const v = koffi.decode(raw.scoring, off, L.rF2VehicleScoring);
+    if (v.mID === 77) koffi.encode(raw.scoring, off, L.rF2VehicleScoring, { ...v, mInGarageStall: true });
+  }
+  const flags = parseSnapshot(raw).flags;
+  assert.equal(flags.state, 'green');
+  assert.deepEqual(flags.sectorYellow, [false, false, false]);
+  assert.deepEqual(flags.rawSectorFlags, [11, 11, 11]);
+  assert.deepEqual(flags.slowCars, []);
+});
