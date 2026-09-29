@@ -11,6 +11,8 @@ const {
   rF2VehicleScoring,
   rF2TelemetryHeader,
   rF2ScoringHeader,
+  rF2RulesHeader,
+  RULES_READ_SIZE,
   TELEMETRY_VEHICLES_OFFSET,
   SCORING_VEHICLES_OFFSET,
 } = require('./rf2Layout');
@@ -144,6 +146,64 @@ function parseCompetitor(v) {
     // World position (x/z plane) for the track map
     posX: round(v.mPos.x, 1),
     posZ: round(v.mPos.z, 1),
+    speedKph: round(Math.hypot(v.mLocalVel.x, v.mLocalVel.y, v.mLocalVel.z) * 3.6, 0),
+    sector: SECTOR[v.mSector] || null,
+  };
+}
+
+const YELLOW_STATES = ['none', 'pending', 'pitsClosed', 'pitLeadLap', 'pitsOpen', 'lastLap', 'resume', 'raceHalt'];
+const SLOW_CAR_KPH = 40;
+const STOPPED_KPH = 10;
+const RULES_MAX_LAG_SEC = 10;
+
+/**
+ * Track status for the map and the engineers.
+ *   state: 'green' | 'localYellow' | 'fcy' | 'safetyCar' | 'fullCourse' | 'other'
+ *     fcy        full-course yellow without a safety car on track (LMU's FCY, like a VSC)
+ *     safetyCar  full-course yellow with the safety car out
+ *     fullCourse full-course yellow, but the Rules buffer is unavailable to tell which
+ *   sectorYellow: [S1, S2, S3] local yellows
+ *   slowCars: ids of cars crawling or stopped on track (likely the cause of a yellow)
+ */
+function parseFlags(info, rulesBuf, field) {
+  let rules = null;
+  const r = rulesBuf && rulesBuf.length >= RULES_READ_SIZE ? koffi.decode(rulesBuf, rF2RulesHeader).mTrackRules : null;
+  // Track rules run where the race is hosted, so online the buffer can be stale:
+  // only trust it while its clock keeps up with scoring
+  if (r && Math.abs(r.mCurrentET - info.mCurrentET) < RULES_MAX_LAG_SEC) {
+    rules = {
+      safetyCarExists: r.mSafetyCarExists,
+      safetyCarActive: r.mSafetyCarActive,
+      safetyCarLapDistM: r.mSafetyCarActive ? round(r.mSafetyCarLapDist, 0) : null,
+      safetyCarSpeedKph: r.mSafetyCarActive && r.mSafetyCarSpeed > 0 ? round(r.mSafetyCarSpeed * 3.6, 0) : null,
+      yellowLaps: r.mYellowFlagLaps > 0 ? r.mYellowFlagLaps : null,
+    };
+  }
+
+  // rF2 orders mSectorFlag like mSector: [sector 3, sector 1, sector 2]
+  const raw = Array.isArray(info.mSectorFlag) ? info.mSectorFlag : [0, 0, 0];
+  const sectorYellow = [raw[1] > 0, raw[2] > 0, raw[0] > 0];
+  const fullCourse = info.mGamePhase === 6;
+  const running = info.mGamePhase === 5 || fullCourse;
+
+  let state = 'other';
+  if (fullCourse) state = !rules ? 'fullCourse' : rules.safetyCarActive ? 'safetyCar' : 'fcy';
+  else if (info.mGamePhase === 5) state = sectorYellow.some(Boolean) ? 'localYellow' : 'green';
+
+  // Under a full-course yellow everyone is slow, so only stopped cars count then
+  const slowKph = fullCourse ? STOPPED_KPH : SLOW_CAR_KPH;
+  const slowCars = running
+    ? field.filter((c) => !c.inPits && c.finishStatus === 0 && c.speedKph != null && c.speedKph < slowKph).map((c) => c.id)
+    : [];
+
+  return {
+    state,
+    sectorYellow,
+    yellowState: fullCourse ? YELLOW_STATES[info.mYellowFlagState] || null : null,
+    safetyCar: rules && rules.safetyCarActive ? { lapDistM: rules.safetyCarLapDistM, speedKph: rules.safetyCarSpeedKph } : null,
+    yellowLaps: fullCourse && rules ? rules.yellowLaps : null,
+    rulesAvailable: !!rules,
+    slowCars,
   };
 }
 
@@ -265,9 +325,10 @@ function parseSnapshot(raw) {
     },
     tires,
     damage: parseDamage(telem, tires),
+    flags: parseFlags(info, raw.rules, field),
     // Every car in the session. Not broadcast at 10 Hz; used by the strategy module.
     field,
   };
 }
 
-module.exports = { parseSnapshot, parseWheel, sessionType, WHEEL_KEYS };
+module.exports = { parseSnapshot, parseWheel, parseFlags, sessionType, WHEEL_KEYS };

@@ -210,3 +210,12 @@ test('voice engineer answers setup questions even without the setting in telemet
   assert.equal(brief.car.frontCompound, 'Medium');
   assert.ok('trackWetness' in brief.session);
 });
+
+test('voice brief carries the track status and slow cars', () => {
+  const ctx = context(350); // local yellow in sector 2, #77 stopped
+  const flags = buildVoiceBrief(ctx).session.flags;
+  assert.equal(flags.status, 'localYellow');
+  assert.deepEqual(flags.yellowSectors, [2]);
+  assert.deepEqual(flags.slowCars, ['#77 Ford Mustang GT3']);
+  assert.match(SYSTEM_PROMPT, /Under any yellow, never tell the driver to push or overtake/);
+});

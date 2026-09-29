@@ -42,3 +42,9 @@ DONE SO FAR
 - Tire engineer, strategist, short radio messages
 - Voice engineer with wheel push-to-talk
 - Fixed: server couldn't find the game (wrong shared memory name)
+
+FLAGS ON THE ENGINEER MAP (new, not yet checked in the real game)
+  Built from the plugin's flag data and tested with the simulator. In LMU,
+  check that a yellow shows in the right sector, and that an FCY and a
+  safety car are told apart. If the sector is wrong, tell me which sector
+  LMU showed and which one the map showed.

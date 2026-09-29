@@ -301,6 +301,8 @@ function standingsPayload() {
       pitStops: c.pitStops,
       x: c.posX,
       z: c.posZ,
+      lapDistM: c.lapDistM,
+      speedKph: c.speedKph,
     }));
 }
 

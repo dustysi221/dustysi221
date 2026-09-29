@@ -28,6 +28,9 @@ const MAX_MAPPED_VEHICLES = 128;
 // running inside a dedicated server appends its PID; the game itself does not.
 const TELEMETRY_MAP_NAME = '$rFactor2SMMP_Telemetry$';
 const SCORING_MAP_NAME = '$rFactor2SMMP_Scoring$';
+// Optional: full-course yellow / safety car details. Missing if the plugin's
+// UnsubscribedBuffersMask turns the Rules buffer off; flags then come from scoring only.
+const RULES_MAP_NAME = '$rFactor2SMMP_Rules$';
 
 // Fixed-size C strings: int8 arrays with the 'String' hint decode to JS strings.
 const cstr = (n) => koffi.array('int8', n, 'String');
@@ -259,6 +262,42 @@ const rF2ScoringHeader = koffi.pack('rF2ScoringHeader', {
   mScoringInfo: rF2ScoringInfo,
 });
 
+// Start of rF2TrackRules (the Rules buffer). Only the fields up to the safety
+// car speed are declared; the per-car action and participant arrays that follow
+// are not read. Offsets (from the buffer start) checked against rF2State.h:
+// mSafetyCarActive 47, mSafetyCarLapDist 56, mYellowFlagState 332, mSafetyCarSpeed 340.
+const rF2TrackRulesPrefix = koffi.pack('rF2TrackRulesPrefix', {
+  mCurrentET: 'double',
+  mStage: 'int32', // 0/1 formation, 2 normal, 3/4 full-course yellow
+  mPoleColumn: 'int32',
+  mNumActions: 'int32',
+  pointer1: bytes(8),
+  mNumParticipants: 'int32',
+  mYellowFlagDetected: 'bool',
+  mYellowFlagLapsWasOverridden: 'uint8',
+  mSafetyCarExists: 'bool',
+  mSafetyCarActive: 'bool',
+  mSafetyCarLaps: 'int32',
+  mSafetyCarThreshold: 'float',
+  mSafetyCarLapDist: 'double',
+  mSafetyCarLapDistAtStart: 'float',
+  mPitLaneStartDist: 'float',
+  mTeleportLapDist: 'float',
+  mInputExpansion: bytes(256),
+  mYellowFlagState: 'int8',
+  pad1: 'uint8', // koffi.pack adds no alignment padding; the C compiler puts 1 byte here
+  mYellowFlagLaps: 'int16',
+  mSafetyCarInstruction: 'int32',
+  mSafetyCarSpeed: 'float', // m/s
+});
+
+const rF2RulesHeader = koffi.pack('rF2RulesHeader', {
+  version: rF2VersionBlockWithSize,
+  mTrackRules: rF2TrackRulesPrefix,
+});
+
+const RULES_READ_SIZE = koffi.sizeof(rF2RulesHeader);
+
 const TELEMETRY_VEHICLES_OFFSET = koffi.sizeof(rF2TelemetryHeader); // 16
 const SCORING_VEHICLES_OFFSET = koffi.sizeof(rF2ScoringHeader); // 560
 
@@ -272,6 +311,10 @@ module.exports = {
   MAX_MAPPED_VEHICLES,
   TELEMETRY_MAP_NAME,
   SCORING_MAP_NAME,
+  RULES_MAP_NAME,
+  RULES_READ_SIZE,
+  rF2RulesHeader,
+  rF2TrackRulesPrefix,
   rF2Wheel,
   rF2VehicleTelemetry,
   rF2ScoringInfo,

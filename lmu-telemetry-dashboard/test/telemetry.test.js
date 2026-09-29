@@ -183,3 +183,86 @@ test('damage: dents, detached parts, flats and the last impact are parsed', () =
   assert.equal(clean.maxDentSeverity, 0);
   assert.equal(clean.lastImpactSecAgo, null);
 });
+
+test('rules buffer layout matches rF2State.h (safety car fields)', () => {
+  assert.equal(L.RULES_MAP_NAME, '$rFactor2SMMP_Rules$');
+  const at = (f) => koffi.offsetof(L.rF2RulesHeader, 'mTrackRules') + koffi.offsetof(L.rF2TrackRulesPrefix, f);
+  assert.equal(at('mCurrentET'), 12);
+  assert.equal(at('mSafetyCarActive'), 47);
+  assert.equal(at('mSafetyCarLapDist'), 56);
+  assert.equal(at('mYellowFlagState'), 332);
+  assert.equal(at('mYellowFlagLaps'), 334);
+  assert.equal(at('mSafetyCarSpeed'), 340);
+});
+
+/** Parsed snapshot from the simulator at `seconds` of race time. */
+function snapshotAt(seconds) {
+  const realNow = Date.now;
+  const base = realNow();
+  Date.now = () => base;
+  try {
+    const mock = new MockSource();
+    mock.startedAt = base - seconds * 1000;
+    return parseSnapshot(mock.read());
+  } finally {
+    Date.now = realNow;
+  }
+}
+
+test('flags: green, local yellow with a stopped car, FCY and safety car', () => {
+  const green = snapshotAt(100).flags;
+  assert.equal(green.state, 'green');
+  assert.deepEqual(green.slowCars, []);
+
+  const local = snapshotAt(350).flags;
+  assert.equal(local.state, 'localYellow');
+  assert.deepEqual(local.sectorYellow, [false, true, false]); // rF2 order [S3, S1, S2] converted
+  assert.deepEqual(local.slowCars, [77]);
+
+  const fcy = snapshotAt(960);
+  assert.equal(fcy.flags.state, 'fcy');
+  assert.equal(fcy.flags.yellowState, 'pitsOpen');
+  assert.equal(fcy.flags.safetyCar, null);
+  assert.equal(fcy.session.phase, 'fullCourseYellow');
+
+  const sc = snapshotAt(1600).flags;
+  assert.equal(sc.state, 'safetyCar');
+  assert.ok(sc.safetyCar.lapDistM >= 0 && sc.safetyCar.lapDistM < 5400);
+  assert.equal(sc.safetyCar.speedKph, 120);
+});
+
+test('flags without the Rules buffer: full course yellow, safety car unknown', () => {
+  const realNow = Date.now;
+  const base = realNow();
+  Date.now = () => base;
+  try {
+    const mock = new MockSource();
+    mock.startedAt = base - 1600 * 1000;
+    const { rules, ...raw } = mock.read();
+    const flags = parseSnapshot(raw).flags;
+    assert.equal(flags.state, 'fullCourse');
+    assert.equal(flags.rulesAvailable, false);
+    assert.equal(flags.safetyCar, null);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test('flags ignore a stale Rules buffer (online, rules run on the server)', () => {
+  const realNow = Date.now;
+  const base = realNow();
+  Date.now = () => base;
+  try {
+    const mock = new MockSource();
+    mock.startedAt = base - 1600 * 1000;
+    const raw = mock.read();
+    const r = koffi.decode(raw.rules, L.rF2RulesHeader);
+    r.mTrackRules.mCurrentET = 12; // frozen since the start
+    koffi.encode(raw.rules, 0, L.rF2RulesHeader, r);
+    const flags = parseSnapshot(raw).flags;
+    assert.equal(flags.state, 'fullCourse');
+    assert.equal(flags.rulesAvailable, false);
+  } finally {
+    Date.now = realNow;
+  }
+});

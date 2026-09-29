@@ -10,6 +10,8 @@
  *   from a 90 L tank, slows as tires age, and pits automatically for fuel and
  *   four tires when it can't make another lap and a half
  * - five AI cars in two classes, each with its own pace and one pit stop
+ * - race control: a local yellow in sector 2 for a stopped car (5:00-6:40),
+ *   a full-course yellow (15:00-17:30) and a safety car (25:00-30:00)
  */
 
 const {
@@ -18,6 +20,8 @@ const {
   rF2VehicleScoring,
   rF2TelemetryHeader,
   rF2ScoringHeader,
+  rF2RulesHeader,
+  RULES_READ_SIZE,
   TELEMETRY_VEHICLES_OFFSET,
   SCORING_VEHICLES_OFFSET,
 } = require('./rf2Layout');
@@ -72,6 +76,7 @@ class MockSource {
 
   read() {
     const elapsed = ((Date.now() - this.startedAt) / 1000) * this.speedMultiplier;
+    const rc = raceControl(elapsed);
     const progress = elapsed / LAP_SECONDS; // continuous laps driven
     const lapsDone = Math.floor(progress);
     const lapFrac = progress - lapsDone;
@@ -171,9 +176,10 @@ class MockSource {
         inPits,
         lapDist: lapFrac * LAP_METERS,
         pos: trackPos(lapFrac),
+        speedKph,
         sectors: sectorData(lapFrac, lapsDone > 0 ? lastLapSec : -1, lapsDone > 0 ? LAP_SECONDS - 0.1 : -1),
       },
-      ...AI_CARS.map((car) => aiState(car, elapsed)),
+      ...AI_CARS.map((car) => aiState(car, elapsed, rc)),
     ].sort((a, b) => b.distance - a.distance);
     const leader = cars[0];
 
@@ -188,7 +194,9 @@ class MockSource {
         mMaxLaps: 2147483647, // timed race: no lap limit
         mLapDist: LAP_METERS,
         mNumVehicles: cars.length,
-        mGamePhase: elapsed < RACE_SECONDS ? 5 : 8, // green, then over
+        mGamePhase: elapsed < RACE_SECONDS ? rc.phase : 8, // green or full-course yellow, then over
+        mYellowFlagState: rc.yellowState,
+        mSectorFlag: rc.sectorFlag,
         mAmbientTemp: 24,
         mTrackTemp: 36,
         mRaining: 0,
@@ -212,11 +220,30 @@ class MockSource {
         mTimeBehindLeader: behind * car.lapSec,
         mLapsBehindLeader: Math.floor(behind),
         mPos: car.pos,
+        mLocalVel: { x: 0, y: 0, z: -car.speedKph / 3.6 },
+        ...(car.sector ? { mSector: car.sector } : {}),
         ...(car.sectors || {}),
       });
     });
 
-    return { telemetry, scoring, telemetryVersion: this.version };
+    const rules = Buffer.alloc(RULES_READ_SIZE);
+    koffi.encode(rules, 0, rF2RulesHeader, {
+      version: { mVersionUpdateBegin: this.version, mVersionUpdateEnd: this.version },
+      mTrackRules: {
+        mCurrentET: elapsed,
+        mStage: rc.phase === 6 ? 4 : 2,
+        mNumParticipants: cars.length,
+        mSafetyCarExists: true,
+        mSafetyCarActive: rc.safetyCar,
+        // The safety car runs 150 m ahead of the leader
+        mSafetyCarLapDist: rc.safetyCar ? (leader.lapDist + 150) % LAP_METERS : 0,
+        mYellowFlagState: rc.yellowState,
+        mYellowFlagLaps: rc.phase === 6 ? 3 : 0,
+        mSafetyCarSpeed: rc.safetyCar ? 120 / 3.6 : 0,
+      },
+    });
+
+    return { telemetry, scoring, rules, telemetryVersion: this.version };
   }
 
   // At each new lap, box if the car can't complete another lap and a half.
@@ -253,7 +280,34 @@ function sectorData(lapFrac, lastLap, bestLap) {
   };
 }
 
-function aiState(car, elapsed) {
+/**
+ * Scripted race control events (race seconds). rF2 values: phase 5 green,
+ * 6 full-course yellow; yellow state 1 pending, 2 pits closed, 4 pits open,
+ * 5 last lap, 6 resume; mSectorFlag is ordered [sector 3, sector 1, sector 2].
+ */
+const LOCAL_YELLOW = { from: 300, to: 400, stoppedCar: 77, at: 0.5 };
+const FULL_COURSE = [
+  { from: 900, to: 1050, safetyCar: false },
+  { from: 1500, to: 1800, safetyCar: true },
+];
+
+function raceControl(elapsed) {
+  const rc = { phase: 5, yellowState: 0, sectorFlag: [0, 0, 0], safetyCar: false, stoppedCar: null };
+  if (elapsed >= LOCAL_YELLOW.from && elapsed < LOCAL_YELLOW.to) {
+    rc.sectorFlag = [0, 0, 1]; // sector 2
+    rc.stoppedCar = LOCAL_YELLOW.stoppedCar;
+  }
+  const fc = FULL_COURSE.find((e) => elapsed >= e.from && elapsed < e.to);
+  if (fc) {
+    const t = elapsed - fc.from, left = fc.to - elapsed;
+    rc.phase = 6;
+    rc.safetyCar = fc.safetyCar;
+    rc.yellowState = t < 15 ? 1 : t < 40 ? 2 : left < 10 ? 6 : left < 60 ? 5 : 4;
+  }
+  return rc;
+}
+
+function aiState(car, elapsed, rc = raceControl(elapsed)) {
   const pitted = elapsed / car.lapSec > car.pitLap;
   const distance = (elapsed - (pitted ? PIT_LOSS_SEC : 0)) / car.lapSec;
   const lapsDone = Math.max(0, Math.floor(distance));
@@ -269,6 +323,11 @@ function aiState(car, elapsed) {
     inPits: pitted && distance - car.pitLap < PIT_LANE_FRACTION,
     lapDist: (distance - lapsDone) * LAP_METERS,
     pos: trackPos(distance - lapsDone),
+    speedKph: pitted && distance - car.pitLap < PIT_LANE_FRACTION ? 60 : 200 + 40 * Math.sin((distance - lapsDone) * Math.PI * 12),
+    // The car behind the local yellow sits stopped in sector 2
+    ...(rc.stoppedCar === car.id
+      ? { speedKph: 0, pos: trackPos(LOCAL_YELLOW.at), lapDist: LOCAL_YELLOW.at * LAP_METERS, sector: 2 }
+      : {}),
   };
 }
 

@@ -168,6 +168,19 @@ function buildStandings(field, tracker) {
   };
 }
 
+/** Track status for the engineer: which flag is out and which cars are slow. */
+function flagBrief(flags, field) {
+  if (!flags) return null;
+  const names = new Map((field || []).map((c) => [c.id, c.vehicle]));
+  return {
+    status: flags.state, // green | localYellow | fcy | safetyCar | fullCourse | other
+    yellowSectors: flags.sectorYellow.map((on, i) => (on ? i + 1 : null)).filter(Boolean),
+    fullCourseStage: flags.yellowState,
+    safetyCarOut: flags.state === 'safetyCar' ? true : flags.rulesAvailable ? false : null,
+    slowCars: flags.slowCars.map((id) => names.get(id) || id),
+  };
+}
+
 /** Compact live-data brief for a voice question. Works with partial or no telemetry. */
 function buildVoiceBrief(ctx = {}) {
   const { snapshot, field, tireHistory, tracker, tireAnalysis, strategy } = ctx;
@@ -233,6 +246,7 @@ function buildVoiceBrief(ctx = {}) {
       airTempC: session.ambientTempC,
       raining: session.raining,
       trackWetness: session.avgPathWetness,
+      flags: flagBrief(snapshot.flags, field),
     },
     tires,
     tireBalance: {

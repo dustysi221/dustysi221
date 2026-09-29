@@ -80,6 +80,7 @@ restart. Laps then take 10 seconds.
 - [ ] Hovering the traces shows a line with this-lap and best-lap values on the left.
 - [ ] The track map outline draws during the first lap; the dots move; hovering a dot names the car.
 - [ ] Sectors fill in and the laps table gets a row per lap.
+- [ ] Flags (the simulator runs them on a schedule; times at `MOCK_SPEED=10`): about **30 s** in, a **YELLOW · S2** banner, sector 2 yellow on the map and a ⚠ on the stopped #77; about **90 s**, **FULL COURSE YELLOW** and the whole track yellow; a **GREEN FLAG** banner for 8 s when it ends; about **150 s**, **SAFETY CAR** with an SC marker ahead of the leader.
 
 ---
 

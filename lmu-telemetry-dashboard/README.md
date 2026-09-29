@@ -200,6 +200,16 @@ Claude calls). It shows:
 - **Track map** drawn from your own driving, with every car on it (hover for
   details), a **G-force circle**, input bars, **tires** (inner/middle/outer,
   pressure, wear, core and brake temperature) and **fuel**.
+- **Flags on the map**: a local yellow paints its sector yellow, a full course
+  yellow (FCY, LMU's version of a VSC) or safety car paints the whole track, a
+  banner says which (with pits closed/open and "in this lap"), the safety car is
+  drawn where it is, and stopped or crawling cars get a ⚠ marker. The voice
+  engineer knows the flag too and won't tell you to push under yellow.
+
+  Telling a safety car from an FCY needs the plugin's Rules buffer. It is on by
+  default; if `UnsubscribedBuffersMask` in `CustomPluginVariables.JSON` includes
+  4, or in online races where the game doesn't share it, the banner says
+  *FULL COURSE YELLOW / SC* instead.
 
 The traces and the live delta need one clean lap as a reference, and lap history
 starts when the page is opened.

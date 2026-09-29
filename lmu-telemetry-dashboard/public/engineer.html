@@ -29,6 +29,7 @@
     /* timing convention: purple = fastest overall, green = personal best */
     --purple: #9085e9;
     --pb: #22c55e;
+    --flag-yellow: #fcd34d; --flag-green: #4ade80;
     --slower: #fab219;
 
     --cold: #3b82f6; --cool: #22d3ee; --optimal: #22c55e; --hot: #f59e0b; --overheat: #ef4444;
@@ -157,6 +158,20 @@
   .fuel { display: flex; justify-content: space-between; padding: 6px 10px 8px; gap: 10px; }
   .fuel .v { font-size: 16px; font-weight: 600; }
 
+  /* track status banner on the map */
+  .flag-banner {
+    position: absolute; top: 8px; left: 8px; z-index: 2; display: none; align-items: center; gap: 10px;
+    padding: 5px 10px 5px 8px; border-radius: 6px; font-weight: 800; letter-spacing: .08em; font-size: 13px;
+    background: var(--flag-yellow); color: #111; box-shadow: 0 4px 16px #0008;
+  }
+  .flag-banner.show { display: flex; }
+  .flag-banner.green { background: var(--flag-green); }
+  .flag-banner.sc { animation: flagpulse 1.2s ease-in-out infinite; }
+  .flag-banner small { display: block; font-size: 10px; font-weight: 700; letter-spacing: .06em; opacity: .75; }
+  .flag-banner .fl { width: 16px; height: 20px; flex: none; }
+  @keyframes flagpulse { 50% { filter: brightness(1.25); } }
+  @media (prefers-reduced-motion: reduce) { .flag-banner.sc { animation: none; } }
+
   /* hover tooltip */
   .tip {
     position: fixed; z-index: 20; pointer-events: none; display: none; padding: 6px 8px; border-radius: 6px;
@@ -251,7 +266,10 @@
   <div class="col right">
     <section class="panel map" aria-label="Track map">
       <h2>Track map <span class="right k" id="mapNote" style="letter-spacing:.05em"></span></h2>
-      <div class="map-wrap"><canvas id="map" aria-label="Track map with car positions"></canvas></div>
+      <div class="map-wrap">
+        <div class="flag-banner" id="flagBanner" role="status" aria-live="polite"><svg class="fl" viewBox="0 0 16 20" aria-hidden="true"><rect x="1" y="1" width="2" height="18" rx="1" fill="#111"/><path d="M3 2h11l-2.5 4.5L14 11H3z" fill="#111"/></svg><span><span id="flagTitle"></span><small id="flagSub"></small></span></div>
+        <canvas id="map" aria-label="Track map with car positions and flags"></canvas>
+      </div>
     </section>
     <section class="panel" aria-label="Inputs">
       <div class="row2">
@@ -302,6 +320,12 @@
   const history = []; // completed laps, newest last
   let bestLap = null; // reference lap for traces and live delta
   const trackBins = new Map(); // lap distance bin -> [x, z]
+  const MAP_BINS = 400;
+  // Where sectors 2 and 3 start, as a fraction of the lap, learned from our own
+  // sector changes (the game doesn't publish sector positions)
+  const sectorStart = [0, null, null];
+  let lastSector = null;
+  let lastFlagState = null, greenUntil = 0;
   const ggTrail = [];
 
   // ---------- formatting ----------
@@ -348,8 +372,12 @@
       }
       if (v.inPits) lap.pitted = true;
       // Track outline from our own positions, binned along the lap
-      if (lapLength && Number.isFinite(v.posX)) trackBins.set(Math.round((dist / lapLength) * 400), [v.posX, v.posZ]);
+      if (lapLength && Number.isFinite(v.posX)) trackBins.set(Math.round((dist / lapLength) * MAP_BINS) % MAP_BINS, [v.posX, v.posZ]);
+      const sec = v.sectors ? v.sectors.current : null;
+      if (lapLength && sec && lastSector && sec === lastSector + 1 && sec <= 3) sectorStart[sec - 1] = dist / lapLength;
+      lastSector = sec;
     }
+    trackFlagChange(d.flags);
     ggTrail.push([v.gLat || 0, v.gLong || 0]);
     if (ggTrail.length > 30) ggTrail.shift();
     scheduleRender();
@@ -426,6 +454,7 @@
       renderTires();
       drawTraces();
       drawMap();
+      renderFlags();
       drawGG();
     });
   }
@@ -662,12 +691,24 @@
   traceCanvas.addEventListener('mouseleave', () => { hoverD = null; scheduleRender(); });
 
   // ---------- track map ----------
+  const FULL_COURSE = ['fcy', 'safetyCar', 'fullCourse'];
   let mapGeom = null;
+
+  /** Lap fraction range [from, to) of sector i (0-2); thirds until we've seen the real split. */
+  function sectorRange(i) {
+    const from = sectorStart[i] ?? i / 3;
+    const to = i === 2 ? 1 : sectorStart[i + 1] ?? (i + 1) / 3;
+    return [from, to];
+  }
+
   function drawMap() {
     const canvas = $('map');
     const { ctx, w, h } = setupCanvas(canvas);
-    const pts = [...trackBins.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]);
+    const entries = [...trackBins.entries()].sort((a, b) => a[0] - b[0]);
+    const pts = entries.map((e) => e[1]);
     const cars = standings.filter((c) => Number.isFinite(c.x) && Number.isFinite(c.z));
+    const flags = snap ? snap.flags : null;
+    const fullCourse = !!flags && FULL_COURSE.includes(flags.state);
     const all = pts.length > 20 ? pts : [...pts, ...cars.map((c) => [c.x, c.z])];
     if (!all.length) {
       ctx.fillStyle = css('--faint');
@@ -677,9 +718,9 @@
     }
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
     for (const [x, z] of all) { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z); }
-    const pad = 22;
-    const scale = Math.min((w - pad * 2) / Math.max(1, maxX - minX), (h - pad * 2) / Math.max(1, maxZ - minZ));
-    const ox = (w - (maxX - minX) * scale) / 2, oy = (h - (maxZ - minZ) * scale) / 2;
+    const pad = 22, top = 40; // room for the flag banner
+    const scale = Math.min((w - pad * 2) / Math.max(1, maxX - minX), (h - pad - top) / Math.max(1, maxZ - minZ));
+    const ox = (w - (maxX - minX) * scale) / 2, oy = pad + (h - pad - top - (maxZ - minZ) * scale) / 2;
     const px = (x) => ox + (x - minX) * scale;
     const py = (z) => h - (oy + (z - minZ) * scale); // north up
     mapGeom = { px, py };
@@ -687,23 +728,73 @@
     // Closed once the bins cover the lap, or after one full lap (at high sim speeds the bins stay sparse)
     const complete = pts.length > 360 || history.some((l) => l.valid);
     $('mapNote').textContent = complete ? '' : 'drawing outline…';
-    if (pts.length > 1) {
-      ctx.strokeStyle = '#2c3342';
-      ctx.lineWidth = 7;
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
+    const yellow = css('--flag-yellow');
+    const path = (list, close) => {
       ctx.beginPath();
-      pts.forEach(([x, z], i) => (i ? ctx.lineTo(px(x), py(z)) : ctx.moveTo(px(x), py(z))));
-      if (complete) ctx.closePath();
+      list.forEach(([x, z], i) => (i ? ctx.lineTo(px(x), py(z)) : ctx.moveTo(px(x), py(z))));
+      if (close) ctx.closePath();
       ctx.stroke();
+    };
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    if (pts.length > 1) {
+      // Full-course yellow / safety car: the whole track turns yellow
+      ctx.strokeStyle = fullCourse ? yellow : '#2c3342';
+      ctx.globalAlpha = fullCourse ? 0.85 : 1;
+      ctx.lineWidth = 7;
+      path(pts, complete);
+      ctx.globalAlpha = 1;
+
+      // Local yellows: only the flagged sectors
+      if (flags && flags.state === 'localYellow') {
+        ctx.strokeStyle = yellow;
+        ctx.lineWidth = 9;
+        ctx.font = '800 11px "Segoe UI", sans-serif';
+        flags.sectorYellow.forEach((on, i) => {
+          if (!on) return;
+          const [from, to] = sectorRange(i);
+          const seg = entries.filter(([k]) => k / MAP_BINS >= from && k / MAP_BINS < to).map((e) => e[1]);
+          if (seg.length < 2) return;
+          path(seg, false);
+          const [mx, mz] = seg[Math.floor(seg.length / 4)]; // a quarter in, clear of mid-sector markers
+          ctx.fillStyle = yellow;
+          ctx.fillText(`S${i + 1}`, px(mx) + 10, py(mz) - 8);
+        });
+      }
+
       // start / finish
       const [sx, sz] = pts[0];
       ctx.fillStyle = css('--text');
       ctx.fillRect(px(sx) - 1, py(sz) - 7, 3, 14);
     }
 
+    // Safety car, placed by its lap distance on our own outline
+    if (flags && flags.safetyCar && flags.safetyCar.lapDistM != null && lapLength && entries.length) {
+      const bin = Math.round((flags.safetyCar.lapDistM / lapLength) * MAP_BINS) % MAP_BINS;
+      let near = entries[0];
+      for (const e of entries) {
+        const d = Math.min(Math.abs(e[0] - bin), MAP_BINS - Math.abs(e[0] - bin));
+        const nd = Math.min(Math.abs(near[0] - bin), MAP_BINS - Math.abs(near[0] - bin));
+        if (d < nd) near = e;
+      }
+      const [x, z] = near[1];
+      ctx.fillStyle = yellow;
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(px(x) - 14, py(z) - 9, 28, 18, 4);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#111';
+      ctx.font = '800 11px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('SC', px(x), py(z) + 4);
+      ctx.textAlign = 'left';
+    }
+
     const classes = [...new Set(standings.map((c) => c.class))];
     const color = (c) => CLASS_COLORS[classes.indexOf(c.class)] || css('--muted');
+    const slow = new Set(flags ? flags.slowCars : []);
     const me = cars.find((c) => c.you);
     for (const c of cars) {
       if (c.you) continue;
@@ -717,7 +808,6 @@
       if (c.pos === 1) {
         ctx.fillStyle = css('--text');
         ctx.font = '600 10px "Segoe UI", sans-serif';
-        // Keep the P1 tag clear of the YOU label when the two are close
         // Skip the P1 tag when it would sit on the YOU label (hover still shows it)
         const nearMe = me && Math.hypot(px(c.x) - px(me.x), py(c.z) - py(me.z)) < 40;
         if (!nearMe) ctx.fillText('P1', px(c.x) + 7, py(c.z) - 6);
@@ -736,6 +826,69 @@
       ctx.font = '700 10px "Segoe UI", sans-serif';
       ctx.fillText('YOU', px(myX) + 11, py(myZ) + 4);
     }
+
+    // Slow or stopped cars: a warning triangle above the dot (drawn last so it stays on top)
+    for (const c of cars) {
+      if (!slow.has(c.id)) continue;
+      const x = px(c.x), y = py(c.z) - 16;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 9); ctx.lineTo(x + 9, y + 7); ctx.lineTo(x - 9, y + 7); ctx.closePath();
+      ctx.fillStyle = yellow;
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 1.5;
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#111';
+      ctx.font = '900 11px "Segoe UI", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('!', x, y + 5);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  // ---------- flag banner ----------
+  const YELLOW_TEXT = {
+    pending: 'Deploying', pitsClosed: 'Pits closed', pitLeadLap: 'Pits open for the lead lap',
+    pitsOpen: 'Pits open', lastLap: 'In this lap', resume: 'Green flag soon', raceHalt: 'Race halted',
+  };
+
+  function trackFlagChange(flags) {
+    const now = flags ? flags.state : null;
+    if (now === 'green' && lastFlagState && lastFlagState !== 'green' && lastFlagState !== 'other') greenUntil = Date.now() + 8000;
+    lastFlagState = now;
+  }
+
+  function renderFlags() {
+    const flags = snap ? snap.flags : null;
+    const banner = $('flagBanner');
+    let title = '', sub = '', kind = 'yellow';
+    if (flags) {
+      const status = YELLOW_TEXT[flags.yellowState] || '';
+      if (flags.state === 'safetyCar') {
+        title = 'SAFETY CAR';
+        sub = [status, flags.yellowLaps ? `${flags.yellowLaps} laps` : ''].filter(Boolean).join(' · ');
+        kind = 'yellow sc';
+      } else if (flags.state === 'fcy') {
+        title = 'FULL COURSE YELLOW';
+        sub = ['FCY / VSC · keep to the limit', status].filter(Boolean).join(' · ');
+      } else if (flags.state === 'fullCourse') {
+        title = 'FULL COURSE YELLOW / SC';
+        sub = status;
+      } else if (flags.state === 'localYellow') {
+        title = 'YELLOW · ' + flags.sectorYellow.map((on, i) => (on ? `S${i + 1}` : null)).filter(Boolean).join(' ');
+        const names = standings.filter((c) => flags.slowCars.includes(c.id) && !c.you).map((c) => c.car);
+        sub = names.length ? `Slow car: ${names.slice(0, 2).join(', ')}` : 'No overtaking in the sector';
+      } else if (flags.state === 'green' && Date.now() < greenUntil) {
+        title = 'GREEN FLAG';
+        sub = 'Track clear';
+        kind = 'green';
+      }
+    }
+    banner.className = `flag-banner ${title ? 'show' : ''} ${kind}`;
+    if (title) {
+      $('flagTitle').textContent = title;
+      $('flagSub').textContent = sub;
+    }
   }
 
   const mapCanvas = $('map');
@@ -751,7 +904,7 @@
     }
     const tip = $('tip');
     if (!hit) { tip.classList.remove('show'); return; }
-    tip.innerHTML = `<b>P${hit.pos} ${esc(hit.car)}</b><br><span style="color:var(--muted)">${esc(hit.driver)} · ${esc(hit.class)}</span><br>Last <span class="num">${lapTime(hit.lastLapSec)}</span> · Best <span class="num">${lapTime(hit.bestLapSec)}</span>${hit.inPits ? '<br>In pits' : ''}`;
+    tip.innerHTML = `<b>P${hit.pos} ${esc(hit.car)}</b><br><span style="color:var(--muted)">${esc(hit.driver)} · ${esc(hit.class)}</span><br>Last <span class="num">${lapTime(hit.lastLapSec)}</span> · Best <span class="num">${lapTime(hit.bestLapSec)}</span>${hit.inPits ? '<br>In pits' : ''}${snap && snap.flags && snap.flags.slowCars.includes(hit.id) ? `<br><span style="color:var(--flag-yellow)">Slow / stopped · ${fmt(hit.speedKph)} km/h</span>` : ''}`;
     tip.style.left = `${e.clientX + 14}px`;
     tip.style.top = `${e.clientY + 10}px`;
     tip.classList.add('show');

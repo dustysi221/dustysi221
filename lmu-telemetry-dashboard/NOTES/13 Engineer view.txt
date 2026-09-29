@@ -38,6 +38,31 @@ Right side  Track map (draws itself during your first lap; hover a dot to
             brake temperature) and fuel.
 
 -----------------------------------------------------------------
+FLAGS ON THE MAP
+-----------------------------------------------------------------
+  Yellow in a sector ..... that part of the track turns yellow, banner
+                           "YELLOW - S2" and which car is slow
+  Full course yellow ..... whole track yellow, banner "FULL COURSE YELLOW"
+  (FCY, like a VSC)        (keep to the speed limit, no overtaking)
+  Safety car ............. whole track yellow, banner "SAFETY CAR" and a
+                           yellow SC box where the safety car is
+  Stopped / slow car ..... yellow warning triangle above the car
+  Back to green .......... green "GREEN FLAG" banner for 8 seconds
+
+  The banner also says "Pits closed", "Pits open" or "In this lap" (the
+  safety car comes in at the end of this lap).
+  The voice engineer knows the flag too and won't tell you to push under
+  yellow.
+
+  If the banner says "FULL COURSE YELLOW / SC", the game isn't telling the
+  dashboard whether it's a safety car. That happens in some online races
+  (the server runs the rules), or if UnsubscribedBuffersMask in
+  CustomPluginVariables.JSON includes 4. Leave that setting at 0 or 160.
+
+  Sector positions on the map are learned while you drive your first lap.
+  Before that the map splits the lap in thirds.
+
+-----------------------------------------------------------------
 GOOD TO KNOW
 -----------------------------------------------------------------
 - The best-lap line and the delta need one clean lap first. Until then the

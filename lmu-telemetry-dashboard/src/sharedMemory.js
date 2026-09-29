@@ -11,6 +11,8 @@ const {
   koffi,
   TELEMETRY_MAP_NAME,
   SCORING_MAP_NAME,
+  RULES_MAP_NAME,
+  RULES_READ_SIZE,
   TELEMETRY_BUFFER_SIZE,
   SCORING_BUFFER_SIZE,
   TELEMETRY_VEHICLES_OFFSET,
@@ -24,6 +26,7 @@ const {
 
 const FILE_MAP_READ = 0x0004;
 const MAX_READ_ATTEMPTS = 5;
+const RULES_RETRY_MS = 5000;
 
 const TELEMETRY_NUM_VEHICLES_OFFSET = koffi.offsetof(rF2TelemetryHeader, 'mNumVehicles');
 const SCORING_NUM_VEHICLES_OFFSET =
@@ -122,6 +125,9 @@ class SharedMemoryReader {
     }
     this.telemetry = new MappedBuffer(TELEMETRY_MAP_NAME, TELEMETRY_BUFFER_SIZE);
     this.scoring = new MappedBuffer(SCORING_MAP_NAME, SCORING_BUFFER_SIZE);
+    // Optional: only its first bytes (safety car / full-course yellow state) are read
+    this.rules = new MappedBuffer(RULES_MAP_NAME, RULES_READ_SIZE);
+    this.rulesTriedAt = 0;
   }
 
   get isOpen() {
@@ -138,15 +144,27 @@ class SharedMemoryReader {
       this.close();
       throw err;
     }
+    this.#openRules();
+  }
+
+  /** The Rules buffer is optional: without it, flags come from scoring alone. */
+  #openRules() {
+    this.rulesTriedAt = Date.now();
+    try {
+      this.rules.open();
+    } catch {
+      this.rules.close();
+    }
   }
 
   close() {
     this.telemetry.close();
     this.scoring.close();
+    this.rules.close();
   }
 
   /**
-   * Returns { telemetry: Buffer, scoring: Buffer, telemetryVersion } covering
+   * Returns { telemetry: Buffer, scoring: Buffer, rules: Buffer|null, telemetryVersion } covering
    * only the vehicles currently in the session, or null if a consistent read
    * was not possible this tick.
    */
@@ -163,7 +181,15 @@ class SharedMemoryReader {
     );
     if (!scoring) return null;
 
-    return { telemetry: telem.buffer, scoring: scoring.buffer, telemetryVersion: telem.version };
+    if (!this.rules.isOpen && Date.now() - this.rulesTriedAt > RULES_RETRY_MS) this.#openRules();
+    const rules = this.rules.isOpen ? this.rules.readConsistent(RULES_READ_SIZE) : null;
+
+    return {
+      telemetry: telem.buffer,
+      scoring: scoring.buffer,
+      rules: rules ? rules.buffer : null,
+      telemetryVersion: telem.version,
+    };
   }
 }
 
