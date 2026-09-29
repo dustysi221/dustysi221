@@ -492,7 +492,8 @@
     if (!snap) return;
     const { session: s, vehicle: v } = snap;
     $('trackName').textContent = s.trackName || '—';
-    $('sessionLine').textContent = [s.type, s.phase].filter(Boolean).join(' · ');
+    const PHASE_TEXT = { fullCourseYellow: 'full course yellow', gridwalk: 'grid walk' };
+    $('sessionLine').textContent = [s.type, PHASE_TEXT[s.phase] || s.phase].filter(Boolean).join(' · ');
     const left = s.endSec > 0 && s.endSec < 1e6 ? s.endSec - s.elapsedSec : null;
     $('timeLeft').textContent = left != null ? hms(left) : s.maxLaps ? `${Math.max(0, s.maxLaps - (v.lapsCompleted || 0))} laps` : '—';
     $('lap').textContent = v.lap ?? '—';
