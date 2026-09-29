@@ -86,6 +86,10 @@ Follow-ups work: it remembers your last few questions.
   "How far am I off the leader?"
   "Who's fastest in my class?"
   "Am I quicker than the car ahead?"
+  "What TC should I run?"            (setup questions work anywhere, even
+  "Should I change brake bias?"        in the pits - it can't see your
+  "The rear is stepping out on exit"   current settings, so it gives
+                                       "up/down a click" advice)
 
 -----------------------------------------------------------------
 7. IMPORTANT

@@ -219,6 +219,8 @@ function buildVoiceBrief(ctx = {}) {
       fuelL: vehicle.fuelL,
       lastLapSec: vehicle.lastLapSec,
       bestLapSec: vehicle.bestLapSec,
+      frontCompound: vehicle.frontCompound,
+      rearCompound: vehicle.rearCompound,
       location,
       stopped: Number.isFinite(vehicle.speedKph) ? vehicle.speedKph < 5 : null,
     },
@@ -228,7 +230,9 @@ function buildVoiceBrief(ctx = {}) {
       phase: session.phase,
       track: session.trackName,
       trackTempC: session.trackTempC,
+      airTempC: session.ambientTempC,
       raining: session.raining,
+      trackWetness: session.avgPathWetness,
     },
     tires,
     tireBalance: {

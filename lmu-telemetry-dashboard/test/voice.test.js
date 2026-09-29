@@ -200,3 +200,13 @@ test('standings on a big grid keep the top 10, your class top 10 and the cars ar
   for (const p of [1, 10, 37, 40, 43]) assert.ok(positions.includes(p), `includes P${p}`);
   assert.ok(st.cars.find((c) => c.you).pos === 40);
 });
+
+test('voice engineer answers setup questions even without the setting in telemetry', () => {
+  assert.match(SYSTEM_PROMPT, /Always answer the question that was asked/);
+  assert.match(SYSTEM_PROMPT, /does NOT include the driver's settings: traction control/);
+  assert.match(SYSTEM_PROMPT, /good moment for setup questions/);
+  const brief = buildVoiceBrief(context(300));
+  assert.equal(brief.session.airTempC, 24);
+  assert.equal(brief.car.frontCompound, 'Medium');
+  assert.ok('trackWetness' in brief.session);
+});
