@@ -35,6 +35,12 @@ const PIT_LANE_FRACTION = 0.06; // share of the lap spent in the pit lane after 
 const WEAR_PER_LAP = { FL: 0.0105, FR: 0.0085, RL: 0.0075, RR: 0.007 };
 const CORNERS = ['FL', 'FR', 'RL', 'RR'];
 
+/** Track outline: a lopsided oval, lap fraction 0..1 -> world x/z in meters. */
+function trackPos(frac) {
+  const a = frac * Math.PI * 2;
+  return { x: 700 * Math.cos(a) + 120 * Math.cos(3 * a), y: 0, z: 380 * Math.sin(a) + 60 * Math.sin(2 * a) };
+}
+
 const PLAYER = { id: 7, name: 'Mock Hypercar #7', driver: 'Mock Driver', cls: 'Hypercar' };
 const AI_CARS = [
   { id: 50, name: '#50 Ferrari 499P', driver: 'AI Fuoco', cls: 'Hypercar', lapSec: 99.4, pitLap: 29 },
@@ -78,8 +84,13 @@ class MockSource {
 
     // Corners/straights: a speed trace with 6 braking zones per lap
     const wave = Math.sin(lapFrac * Math.PI * 12);
+    // Corners alternate left/right; steering and lateral g follow the corner
+    const cornerDir = Math.floor(lapFrac * 6) % 2 === 0 ? 1 : -1;
+    const steering = inPits ? 0 : wave < 0 ? -wave * 0.35 * cornerDir : 0.02 * Math.sin(elapsed);
+    const gLat = inPits ? 0 : steering * 6;
     const speedKph = inPits ? 60 : 215 + 65 * wave;
     const braking = !inPits && wave < -0.6;
+    const gLong = inPits ? 0 : braking ? -1.8 : 0.35 * Math.max(0, wave);
 
     // Slow warm-up over the first lap of a stint, older tires run hotter
     const warm = Math.min(1, stintLaps / 1.2);
@@ -131,6 +142,9 @@ class MockSource {
       mVehicleName: PLAYER.name,
       mTrackName: 'Mock Circuit',
       mLocalVel: { x: 0, y: 0, z: -speedKph / 3.6 },
+      mPos: trackPos(lapFrac),
+      mLocalAccel: { x: -gLat * 9.81, y: 0, z: -gLong * 9.81 },
+      mUnfilteredSteering: steering,
       mGear: Math.max(2, Math.min(7, Math.round(speedKph / 42))),
       mEngineRPM: 6200 + 1800 * Math.abs(wave),
       mEngineMaxRPM: 8500,
@@ -156,6 +170,8 @@ class MockSource {
         pitStops: this.pitStops,
         inPits,
         lapDist: lapFrac * LAP_METERS,
+        pos: trackPos(lapFrac),
+        sectors: sectorData(lapFrac, lapsDone > 0 ? lastLapSec : -1, lapsDone > 0 ? LAP_SECONDS - 0.1 : -1),
       },
       ...AI_CARS.map((car) => aiState(car, elapsed)),
     ].sort((a, b) => b.distance - a.distance);
@@ -195,6 +211,8 @@ class MockSource {
         mPlace: i + 1,
         mTimeBehindLeader: behind * car.lapSec,
         mLapsBehindLeader: Math.floor(behind),
+        mPos: car.pos,
+        ...(car.sectors || {}),
       });
     });
 
@@ -215,6 +233,26 @@ class MockSource {
   }
 }
 
+/** Scoring sector fields: sector 2 values are cumulative (sector 1 + 2), like the game. */
+function sectorData(lapFrac, lastLap, bestLap) {
+  const split = (lap) => (lap > 0 ? [lap * 0.33, lap * 0.67] : [-1, -1]);
+  const [last1, last2] = split(lastLap);
+  const [best1, best2] = split(bestLap);
+  const elapsedInLap = lapFrac * LAP_SECONDS;
+  return {
+    mSector: lapFrac < 1 / 3 ? 1 : lapFrac < 2 / 3 ? 2 : 0,
+    mCurSector1: lapFrac >= 1 / 3 ? LAP_SECONDS * 0.33 + 0.05 : -1,
+    mCurSector2: lapFrac >= 2 / 3 ? LAP_SECONDS * 0.67 + 0.12 : -1,
+    mLastSector1: last1,
+    mLastSector2: last2,
+    mBestSector1: best1,
+    mBestSector2: best2,
+    mBestLapSector1: best1,
+    mBestLapSector2: best2,
+    mTimeIntoLap: elapsedInLap,
+  };
+}
+
 function aiState(car, elapsed) {
   const pitted = elapsed / car.lapSec > car.pitLap;
   const distance = (elapsed - (pitted ? PIT_LOSS_SEC : 0)) / car.lapSec;
@@ -230,6 +268,7 @@ function aiState(car, elapsed) {
     pitStops: pitted ? 1 : 0,
     inPits: pitted && distance - car.pitLap < PIT_LANE_FRACTION,
     lapDist: (distance - lapsDone) * LAP_METERS,
+    pos: trackPos(distance - lapsDone),
   };
 }
 

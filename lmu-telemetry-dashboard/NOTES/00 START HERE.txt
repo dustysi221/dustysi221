@@ -35,6 +35,8 @@ QUICK START (every time you race)
 6. When you're done, close the black window.
 
 To test without the game: double-click "Start Simulator.bat" instead.
+For the pit-wall engineer view: open http://localhost:3000/engineer
+(or click "Engineer view" at the top of the dashboard).
 To get the newest version: double-click "Update Dashboard.bat".
 
 -----------------------------------------------------------------
@@ -52,5 +54,6 @@ THE NOTES IN THIS FOLDER
 10 Anti-cheat and safety ................. is it bannable, keeping your key safe
 11 Known issues and next steps ........... what still needs work
 12 Control Panel ......................... turn everything on/off in one place
+13 Engineer view ......................... the second, pit-wall style dashboard
 
 More technical detail: README.md and TESTING.md in the project folder.

@@ -280,7 +280,32 @@ function pollTelemetry() {
   broadcast({ type: 'telemetry', data: state.snapshot });
 }
 
+/** Compact leaderboard for the engineer view's timing tower and track map. */
+function standingsPayload() {
+  return state.field
+    .slice()
+    .sort((a, b) => a.position - b.position)
+    .map((c) => ({
+      id: c.id,
+      pos: c.position,
+      class: c.class,
+      car: c.vehicle,
+      driver: c.driver,
+      you: c.isPlayer || undefined,
+      laps: c.lapsCompleted,
+      lastLapSec: c.lastLapSec,
+      bestLapSec: c.bestLapSec,
+      gapToLeaderSec: c.timeBehindLeaderSec,
+      lapsDown: c.lapsBehindLeader,
+      inPits: c.inPits || undefined,
+      pitStops: c.pitStops,
+      x: c.posX,
+      z: c.posZ,
+    }));
+}
+
 function sampleHistory() {
+  if (state.field.length) broadcast({ type: 'standings', data: standingsPayload() });
   if (!state.live || !state.snapshot) return;
   history.record(state.snapshot);
   tracker.record({ ...state.snapshot, field: state.field });
@@ -356,6 +381,7 @@ async function handleVoiceQuery(ws, { id, text, alternatives }) {
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/control', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'control.html')));
+app.get('/engineer', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'engineer.html')));
 
 app.get('/api/health', (_req, res) => res.json(statusPayload()));
 app.get('/api/snapshot', (_req, res) => res.json(state.snapshot));
@@ -594,6 +620,7 @@ wss.on('connection', (ws, req) => {
   if (state.snapshot) send(ws, { type: 'telemetry', data: state.snapshot });
   if (state.tireAnalysis) send(ws, { type: 'tire_analysis', data: state.tireAnalysis });
   if (state.strategy) send(ws, { type: 'strategy', data: state.strategy });
+  if (state.field.length) send(ws, { type: 'standings', data: standingsPayload() });
 
   ws.on('message', (raw) => {
     let msg;

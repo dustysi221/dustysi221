@@ -72,6 +72,15 @@ server streams data. They don't need the game or an API key.
 To see more in less time, create a `.env` file containing `MOCK_SPEED=10`, and
 restart. Laps then take 10 seconds.
 
+**Engineer view:** open **http://localhost:3000/engineer** (or click
+**Engineer view** in the dashboard header).
+
+- [ ] The timing tower lists 6 cars with your row highlighted; **Interval** switches the gap column.
+- [ ] Traces draw as you drive. After one full lap a dashed **best lap** line appears and the live delta shows a number instead of **no ref**.
+- [ ] Hovering the traces shows a line with this-lap and best-lap values on the left.
+- [ ] The track map outline draws during the first lap; the dots move; hovering a dot names the car.
+- [ ] Sectors fill in and the laps table gets a row per lap.
+
 ---
 
 ## Stage 3: Claude with the simulator (costs a little)

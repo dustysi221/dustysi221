@@ -183,6 +183,27 @@ Or by hand:
 Stop the server with **Ctrl+C**. Leave the dashboard tab open between sessions;
 it reconnects by itself.
 
+### Engineer view (second dashboard)
+
+Besides the driver dashboard at `/`, there is a pit-wall style **engineer view**
+at **http://localhost:3000/engineer** (link in the header of both pages). Open
+both at once if you like; they share one server and cost nothing extra (no
+Claude calls). It shows:
+
+- **Timing tower**: every car with class, gap to the leader or interval to the
+  car ahead, last and best lap, pit and fastest-lap tags.
+- **Telemetry traces** against lap distance: live delta, speed, throttle, brake,
+  gear, RPM and steering. The current lap is solid and your best clean lap is the
+  dashed reference. Hover to read both at any point on the lap.
+- **Sectors** (green = personal best, yellow = slower) and a **laps table** with
+  sector times, top speed and fuel used per lap.
+- **Track map** drawn from your own driving, with every car on it (hover for
+  details), a **G-force circle**, input bars, **tires** (inner/middle/outer,
+  pressure, wear, core and brake temperature) and **fuel**.
+
+The traces and the live delta need one clean lap as a reference, and lap history
+starts when the page is opened.
+
 ### Try it without the game
 
 The simulator runs a 90-minute race with AI rivals and a pit stop, on any OS:
@@ -484,6 +505,7 @@ WebSocket `ws://localhost:3000/telemetry`: every message is `{ "type", "data" }`
 | `analysis_error` | a Claude call failed | `{ source, message, at }` |
 | `voice_reply` | answer to your `voice_query` | `{ id, question, reply, lap, latencyMs, … }` |
 | `voice_error` | a voice question failed | `{ id, message, busy }` |
+| `standings` | 1 Hz and on connect | array of cars: `{ id, pos, class, car, driver, you, laps, lastLapSec, bestLapSec, gapToLeaderSec, lapsDown, inPits, pitStops, x, z }` |
 | `ptt` | the Control Panel voice button was pressed/released | `{ down }` |
 | `pong` | reply to `{ "type": "ping" }` | `{ at }` |
 

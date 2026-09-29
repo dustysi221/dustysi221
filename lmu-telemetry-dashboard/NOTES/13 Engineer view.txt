@@ -1,0 +1,48 @@
+ENGINEER VIEW (THE SECOND DASHBOARD)
+====================================
+
+There are two dashboards. Both run from the same server at the same time:
+
+  Driver dashboard   http://localhost:3000            big numbers, AI engineers, voice
+  Engineer view      http://localhost:3000/engineer   pit-wall telemetry like GT3 / F1 teams
+
+Open the engineer view with the "Engineer view" button at the top of the
+driver dashboard or the Control Panel, or type the address in the browser.
+It makes no AI calls, so it costs nothing.
+
+-----------------------------------------------------------------
+WHAT'S ON IT
+-----------------------------------------------------------------
+Top bar     Session, time left, lap, position, last / best lap, and the
+            LIVE DELTA to your best lap (green = faster, red = slower).
+
+Timing      Every car: position, class color, gap, last lap, best lap.
+(left)      "Leader" = gap to P1, "Interval" = gap to the car ahead.
+            PIT = in the pits. FL = fastest lap of the session.
+            Your row is highlighted. On smaller screens the Last column is
+            hidden; hover a car on the track map to see it.
+
+Traces      Speed, throttle, brake, gear, RPM and steering over one lap.
+(middle)    Solid line = this lap. Dashed line = your best clean lap.
+            The top strip is the delta: going up means losing time there.
+            Move the mouse over the traces to compare both laps at that spot.
+
+Sectors     Your sector times. Green = personal best, yellow = slower.
+Laps        One row per lap: time, difference to best, sectors, top speed,
+            fuel used. The green dot marks your best lap. Grey = out lap,
+            pit lap or a lap you joined halfway (not used as a reference).
+
+Right side  Track map (draws itself during your first lap; hover a dot to
+            see the car), G-force circle, pedal/steering bars, the four
+            tires (inner / middle / outer temps, pressure, wear, core and
+            brake temperature) and fuel.
+
+-----------------------------------------------------------------
+GOOD TO KNOW
+-----------------------------------------------------------------
+- The best-lap line and the delta need one clean lap first. Until then the
+  delta box says "no ref".
+- Lap history starts when you open the page. Refreshing the page clears it.
+- Best on a second monitor at 1920x1080. It also fits 1366x768.
+- Tire temperatures here come from the same data as the driver dashboard,
+  so the "temps don't match LMU" issue in 11 Known issues applies here too.

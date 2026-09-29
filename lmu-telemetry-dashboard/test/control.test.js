@@ -160,3 +160,28 @@ test('control panel: voice button state is reported; assigning needs Windows', a
   const cleared = await srv.post('/api/control/wheel/clear', {});
   assert.equal(cleared.body.wheel.binding, null);
 });
+
+test('engineer view is served and gets the standings every second', async (t) => {
+  const srv = await startServer('');
+  t.after(srv.stop);
+  const page = await fetch(srv.base + '/engineer');
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /<title>LMU Pit Wall<\/title>/);
+
+  const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/telemetry`);
+  const standings = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('no standings')), 4000);
+    ws.on('message', (m) => {
+      const msg = JSON.parse(m);
+      if (msg.type === 'standings' && Array.isArray(msg.data) && msg.data.length) {
+        clearTimeout(timer);
+        resolve(msg.data);
+      }
+    });
+  });
+  ws.close();
+  const me = standings.find((c) => c.you);
+  assert.ok(me, 'player is in the standings');
+  assert.equal(standings[0].pos, 1);
+  assert.ok(Number.isFinite(me.x) && Number.isFinite(me.z));
+});

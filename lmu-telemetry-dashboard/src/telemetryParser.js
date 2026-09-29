@@ -140,6 +140,36 @@ function parseCompetitor(v) {
     inPits: v.mInPits,
     pitStops: v.mNumPitstops,
     finishStatus: v.mFinishStatus, // 0 none, 1 finished, 2 DNF, 3 DQ
+    lapDistM: round(v.mLapDist, 0),
+    // World position (x/z plane) for the track map
+    posX: round(v.mPos.x, 1),
+    posZ: round(v.mPos.z, 1),
+  };
+}
+
+// rF2 counts sectors 1, 2 and 0 (= sector 3)
+const SECTOR = { 1: 1, 2: 2, 0: 3 };
+const secTime = (t) => (t > 0 ? round(t, 3) : null);
+
+/**
+ * Sector times in seconds (not cumulative). The game reports sector 2 as
+ * "sector 1 + sector 2", so it is converted here.
+ */
+function sectorTimes(p) {
+  if (!p) return null;
+  const split = (s1, s12, lap) => {
+    const a = secTime(s1);
+    const b = s12 > 0 && s1 > 0 ? round(s12 - s1, 3) : null;
+    const c = lap > 0 && s12 > 0 ? round(lap - s12, 3) : null;
+    return [a, b, c];
+  };
+  return {
+    current: SECTOR[p.mSector] ?? null,
+    currentLap: [secTime(p.mCurSector1), p.mCurSector2 > 0 && p.mCurSector1 > 0 ? round(p.mCurSector2 - p.mCurSector1, 3) : null, null],
+    lastLap: split(p.mLastSector1, p.mLastSector2, p.mLastLapTime),
+    // Best individual sectors across the session (sector 3 isn't reported separately)
+    bestSectors: [secTime(p.mBestSector1), p.mBestSector2 > 0 && p.mBestSector1 > 0 ? round(p.mBestSector2 - p.mBestSector1, 3) : null, null],
+    bestLap: split(p.mBestLapSector1, p.mBestLapSector2, p.mBestLapTime),
   };
 }
 
@@ -221,6 +251,13 @@ function parseSnapshot(raw) {
       maxRpm: round(telem.mEngineMaxRPM, 0),
       throttle: round(telem.mUnfilteredThrottle, 3),
       brake: round(telem.mUnfilteredBrake, 3),
+      steering: round(telem.mUnfilteredSteering, 3), // -1 left .. +1 right
+      // Accelerations in g. rF2 local axes: +x left, +z backward.
+      gLat: round(-telem.mLocalAccel.x / 9.81, 2), // + = pulling right
+      gLong: round(-telem.mLocalAccel.z / 9.81, 2), // + = accelerating, - = braking
+      posX: round(telem.mPos.x, 1),
+      posZ: round(telem.mPos.z, 1),
+      sectors: sectorTimes(player),
       fuelL: round(telem.mFuel, 2),
       fuelCapacityL: round(telem.mFuelCapacity, 1),
       frontCompound: telem.mFrontTireCompoundName,
