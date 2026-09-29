@@ -11,7 +11,8 @@
     --panel: #0c0f14;
     --panel-2: #121720;
     --line: #1d2330;
-    --grid: #171c26;
+    --grid: #151a23;
+    --plot: #080b10;
     --text: #e6e9ef;
     --muted: #8a93a6;
     --faint: #5b6376;
@@ -125,7 +126,8 @@
   .trace-wrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; }
   .legend { display: flex; gap: 14px; align-items: center; font-size: 11px; color: var(--muted); }
   .legend .sw { display: inline-block; width: 16px; height: 0; border-top: 2px solid var(--text); vertical-align: middle; margin-right: 5px; }
-  .legend .sw.ref { border-top: 2px dashed var(--reference); }
+  .legend .sw.ref { opacity: .3; }
+  .legend .hint { color: var(--faint); }
 
   /* bottom center: sectors + laps */
   .bottom { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr); gap: 6px; height: 196px; }
@@ -268,6 +270,7 @@
         <span class="right legend">
           <span><span class="sw"></span>This lap</span>
           <span><span class="sw ref"></span>Best lap <span class="num" id="refLap"></span></span>
+          <span class="hint" id="zoomHint"></span>
         </span>
       </h2>
       <div class="trace-wrap"><canvas id="traces" aria-label="Speed, throttle, brake, gear, RPM, steering and delta against lap distance"></canvas></div>
@@ -594,168 +597,329 @@
   }
 
   // ---------- traces ----------
+  // Stacked strips on one shared lap-distance axis. Each strip has its own
+  // y scale (one axis per strip), a legend with the value at the cursor (or
+  // live), this lap in the channel color and the best lap faded behind it.
   const STRIPS = [
-    { key: 'delta', label: 'Delta', unit: 's', color: '--text', weight: 1.1, min: -1, max: 1, fmt: (v) => signed(v, 2), zero: true, autoRange: true },
-    { key: 'speed', label: 'Speed', unit: 'km/h', color: '--speed', weight: 1.4, min: 0, max: 320, fmt: (v) => fmt(v), autoMax: true },
-    { key: 'thr', label: 'Throttle', unit: '%', color: '--throttle', weight: 0.8, min: 0, max: 100, fmt: (v) => fmt(v) },
-    { key: 'brk', label: 'Brake', unit: '%', color: '--brake', weight: 0.8, min: 0, max: 100, fmt: (v) => fmt(v) },
-    { key: 'gear', label: 'Gear', unit: '', color: '--gear', weight: 0.7, min: 0, max: 8, fmt: (v) => fmt(v), step: true },
-    { key: 'rpm', label: 'RPM', unit: '', color: '--rpm', weight: 0.9, min: 0, max: 9000, fmt: (v) => fmt(v), autoMax: true },
-    { key: 'steer', label: 'Steering', unit: '%', color: '--steer', weight: 0.8, min: -100, max: 100, fmt: (v) => (v > 0 ? 'R' : v < 0 ? 'L' : '') + fmt(Math.abs(v)), zero: true },
+    { id: 'delta', label: 'Time delta', unit: 's', weight: 0.95, range: 'delta', zero: true, noRef: true,
+      series: [{ key: 'delta', color: '--text' }], fmt: (v) => signed(v, 2) },
+    { id: 'speed', label: 'Speed', unit: 'km/h', weight: 1.8, min: 0, max: 300, autoMax: true, autoMin: true, step: 50, minima: true,
+      series: [{ key: 'speed', color: '--speed' }], fmt: (v) => fmt(v) },
+    // Throttle and brake are close for red-green colorblind readers, so they also
+    // differ in mark: throttle is a line, brake a filled area, and both are labeled
+    { id: 'pedals', label: 'Pedals', unit: '%', weight: 1.15, min: 0, max: 100, step: 50,
+      series: [{ key: 'thr', color: '--throttle', short: 'THR' }, { key: 'brk', color: '--brake', short: 'BRK', area: true }], fmt: (v) => fmt(v) },
+    { id: 'gear', label: 'Gear', unit: '', weight: 0.65, min: 0, max: 8, step: 2, stepped: true, autoMax: true,
+      series: [{ key: 'gear', color: '--gear' }], fmt: (v) => fmt(v) },
+    { id: 'rpm', label: 'Engine', unit: 'rpm', weight: 0.9, min: 0, max: 9000, step: 1000, autoMax: true, autoMin: true,
+      series: [{ key: 'rpm', color: '--rpm' }], fmt: (v) => fmt(v), tick: (v) => (v ? `${v / 1000}k` : '0') },
+    { id: 'steer', label: 'Steering', unit: '%', weight: 0.95, min: -100, max: 100, step: 100, zero: true,
+      series: [{ key: 'steer', color: '--steer' }], fmt: (v) => (v > 0 ? 'R' : v < 0 ? 'L' : '') + fmt(Math.abs(v)),
+      tick: (v) => (v > 0 ? 'R' : v < 0 ? 'L' : '0') },
   ];
-  const LABEL_W = 118;
-  let stripLayout = [];
+  const AXIS_W = 42, PAD_R = 10, RIBBON_H = 20, AXIS_H = 22;
+  const MONO = 'Cascadia Mono, Consolas, "Roboto Mono", monospace';
+  const SANS = '"Segoe UI", system-ui, sans-serif';
+  let zoom = null; // [fromM, toM] when zoomed into part of the lap
+  let drag = null; // { x0, x1 } while selecting a zoom range
+
+  /** Best time for sector i over clean laps (optionally leaving one lap out). */
+  function bestCleanSector(i, exclude) {
+    const vals = history.filter((l) => l !== exclude && l.valid && l.sectors && l.sectors[i] > 0).map((l) => l.sectors[i]);
+    return vals.length ? Math.min(...vals) : null;
+  }
+
+  /** Speed minima worth labeling (corner apexes): lowest point within ±150 m that is 25 km/h below its surroundings. */
+  function apexes(samples, from, to) {
+    const out = [];
+    let j0 = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const p = samples[i];
+      if (p.d < from || p.d > to || !Number.isFinite(p.speed)) continue;
+      while (samples[j0].d < p.d - 150) j0++;
+      let isMin = true, peak = p.speed;
+      for (let j = j0; j < samples.length && samples[j].d <= p.d + 150; j++) {
+        const v = samples[j].speed;
+        if (v < p.speed || (v === p.speed && j < i)) { isMin = false; break; }
+        if (v > peak) peak = v;
+      }
+      if (isMin && peak - p.speed >= 25 && p.d > samples[0].d + 50) out.push(p);
+    }
+    return out;
+  }
 
   function drawTraces() {
     const canvas = $('traces');
     const { ctx, w, h } = setupCanvas(canvas);
-    const plotX = LABEL_W, plotW = Math.max(10, w - LABEL_W - 10), axisH = 20;
-    const total = STRIPS.reduce((a, s) => a + s.weight, 0);
-    const avail = h - axisH - 4;
-    const maxD = lapLength || Math.max(1000, ...lap.samples.map((s) => s.d));
-    const xOf = (d) => plotX + (d / maxD) * plotW;
+    const plotX = AXIS_W, plotW = Math.max(10, w - AXIS_W - PAD_R);
+    const lapLen = lapLength || Math.max(1000, ...lap.samples.map((s) => s.d));
+    const [v0, v1] = zoom || [0, lapLen];
+    const xOf = (d) => plotX + ((d - v0) / (v1 - v0)) * plotW;
     const ref = bestLap ? bestLap.samples : null;
     const cur = lap.samples;
-    const cursor = hoverD != null ? { cur: sampleAt(cur, hoverD), ref: sampleAt(ref, hoverD) } : null;
     const liveCur = cur[cur.length - 1];
+    const atD = hoverD != null ? hoverD : liveCur ? liveCur.d : null;
+    const nowS = hoverD != null ? sampleAt(cur, hoverD) : liveCur;
+    const refS = atD != null ? sampleAt(ref, atD) : null;
 
-    let y = 2;
-    stripLayout = [];
-    ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+    // ----- sector ribbon: this lap's completed sectors, green = best, amber = slower
+    const ribbonY = 2;
+    const sec = snap && snap.vehicle.sectors;
+    const splits = sectorStart[1] != null && sectorStart[2] != null ? [0, sectorStart[1], sectorStart[2], 1] : null;
+    ctx.font = `700 10px ${SANS}`;
+    if (splits) {
+      for (let i = 0; i < 3; i++) {
+        const xa = Math.max(plotX, xOf(splits[i] * lapLen)), xb = Math.min(plotX + plotW, xOf(splits[i + 1] * lapLen));
+        if (xb - xa < 2) continue;
+        const done = sec && sec.current && i < sec.current - 1 ? sec.currentLap[i] : null;
+        const best = bestCleanSector(i, null);
+        const d = done != null && best != null ? done - best : null;
+        const bg = d == null ? css('--panel-2') : d <= 0.0005 ? css('--pb') : css('--slower');
+        ctx.fillStyle = bg;
+        ctx.globalAlpha = d == null ? 1 : 0.9;
+        ctx.fillRect(xa + 1, ribbonY, xb - xa - 2, RIBBON_H - 4);
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = d == null ? css('--muted') : '#0b0d10';
+        const txt = `S${i + 1}` + (done != null ? `  ${done.toFixed(3)}${d != null ? `  ${signed(d)}` : ''}` : '');
+        ctx.save();
+        ctx.beginPath(); ctx.rect(xa, ribbonY, xb - xa, RIBBON_H); ctx.clip();
+        ctx.fillText(txt, xa + 7, ribbonY + 12);
+        ctx.restore();
+      }
+    } else {
+      ctx.fillStyle = css('--faint');
+      ctx.fillText('SECTOR SPLITS APPEAR AFTER YOUR FIRST FULL LAP', plotX + 6, ribbonY + 12);
+    }
+
+    // ----- strips
+    const y0 = RIBBON_H + 4, avail = h - y0 - AXIS_H;
+    const total = STRIPS.reduce((a, s) => a + s.weight, 0);
+    let y = y0;
     for (const s of STRIPS) {
       const sh = (s.weight / total) * avail;
-      const top = y + 3, bottom = y + sh - 3, height = bottom - top;
-      stripLayout.push({ top, bottom, s });
+      const top = y + 4, bottom = y + sh - 4, height = bottom - top;
 
-      // Range: fixed, or grown from the data so traces never clip
+      // y range
       let min = s.min, max = s.max;
-      if (s.autoMax) {
-        for (const arr of [cur, ref]) if (arr) for (const p of arr) if (p[s.key] > max) max = p[s.key];
-      }
-      if (s.autoRange) {
+      if (s.range === 'delta') {
         let m = 0.25;
-        for (const p of cur) if (p.delta != null) m = Math.max(m, Math.abs(p.delta));
+        for (const p of cur) if (p.d >= v0 && p.d <= v1 && Number.isFinite(p.delta)) m = Math.max(m, Math.abs(p.delta));
         m = Math.min(5, Math.ceil(m * 4) / 4);
         min = -m; max = m;
+      } else if (s.autoMax || s.autoMin) {
+        // Fit the scale to the data (rounded to the tick step) so detail isn't squashed
+        let lo = Infinity, hi = -Infinity;
+        for (const arr of [cur, ref]) if (arr) for (const p of arr) for (const se of s.series) {
+          const v = p[se.key];
+          if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+        }
+        if (Number.isFinite(lo)) {
+          if (s.autoMax) max = Math.max(s.step, Math.ceil(hi / s.step) * s.step);
+          if (s.autoMin) min = Math.max(s.min, Math.floor(lo / s.step) * s.step - s.step);
+        }
       }
       const yOf = (v) => bottom - ((Math.max(min, Math.min(max, v)) - min) / (max - min)) * height;
 
-      // Recessive grid and strip divider
-      ctx.strokeStyle = css('--grid');
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(plotX, bottom + 3 + 0.5); ctx.lineTo(plotX + plotW, bottom + 3 + 0.5);
-      if (s.zero) { const zy = Math.round(yOf(0)) + 0.5; ctx.moveTo(plotX, zy); ctx.lineTo(plotX + plotW, zy); }
-      ctx.stroke();
-
-      // Delta: shade time lost (above zero) red and time gained (below) green
-      if (s.key === 'delta') {
-        const pts = cur.filter((p) => Number.isFinite(p.delta));
-        if (pts.length > 1) {
-          const zy = yOf(0);
-          ctx.save();
-          ctx.beginPath();
-          ctx.moveTo(xOf(pts[0].d), zy);
-          for (const p of pts) ctx.lineTo(xOf(p.d), yOf(p.delta));
-          ctx.lineTo(xOf(pts[pts.length - 1].d), zy);
-          ctx.closePath();
-          ctx.clip();
-          ctx.globalAlpha = 0.28;
-          ctx.fillStyle = css('--brake');
-          ctx.fillRect(plotX, top, plotW, zy - top);
-          ctx.fillStyle = css('--pb');
-          ctx.fillRect(plotX, zy, plotW, bottom - zy);
-          ctx.restore();
-        }
+      // plot background, grid and y-axis ticks
+      ctx.fillStyle = css('--plot');
+      ctx.fillRect(plotX, top, plotW, height);
+      const ticks = s.range === 'delta' ? [min, 0, max] : [];
+      if (!ticks.length) {
+        // Thin the ticks until labels are at least 20 px apart
+        let step = s.step;
+        while (((step / (max - min)) * height) < 20 && step < max - min) step *= 2;
+        for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) ticks.push(v);
+      }
+      ctx.font = `10px ${MONO}`;
+      ctx.textAlign = 'right';
+      for (const v of ticks) {
+        const ty = Math.round(yOf(v)) + 0.5;
+        ctx.strokeStyle = v === 0 && s.zero ? css('--line') : css('--grid');
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(plotX, ty); ctx.lineTo(plotX + plotW, ty); ctx.stroke();
         ctx.fillStyle = css('--faint');
-        ctx.font = '600 9px "Segoe UI", system-ui, sans-serif';
-        ctx.textAlign = 'right';
-        ctx.fillText('SLOWER ▲', plotX + plotW - 4, top + 10);
-        ctx.fillText('FASTER ▼', plotX + plotW - 4, bottom - 3);
+        const label = s.tick ? s.tick(v) : s.range === 'delta' ? (v > 0 ? '+' : v < 0 ? '−' : '') + Math.abs(v).toFixed(2) : String(v);
+        ctx.fillText(label, plotX - 6, Math.min(bottom, Math.max(top + 8, ty + 3)));
+      }
+      ctx.textAlign = 'left';
+
+      // data, clipped to the strip
+      ctx.save();
+      ctx.beginPath(); ctx.rect(plotX, top, plotW, height); ctx.clip();
+      if (s.range === 'delta') drawDeltaFill(ctx, cur, xOf, yOf, plotX, plotW, top, bottom);
+      for (const se of s.series) {
+        const color = css(se.color);
+        if (ref && !s.noRef) drawLine(ctx, ref, se.key, xOf, yOf, color, 1.25, null, s.stepped, 0.3, v0, v1, se.area && bottom);
+        drawLine(ctx, cur, se.key, xOf, yOf, color, se.area ? 1.25 : 1.75, null, s.stepped, 1, v0, v1, se.area && bottom);
+      }
+      if (s.minima && cur.length > 10) {
+        ctx.font = `600 10px ${MONO}`;
+        ctx.textAlign = 'center';
+        for (const p of apexes(cur, v0, v1)) {
+          const ax = xOf(p.d), ay = yOf(p.speed);
+          ctx.fillStyle = css('--speed');
+          ctx.fillRect(ax - 1.5, ay - 1.5, 3, 3);
+          ctx.fillStyle = css('--muted');
+          ctx.fillText(fmt(p.speed), ax, Math.min(bottom - 2, ay + 13));
+        }
         ctx.textAlign = 'left';
-        ctx.font = '11px "Segoe UI", system-ui, sans-serif';
       }
+      ctx.restore();
 
-      // Reference (best lap): dashed, muted
-      if (ref && s.key !== 'delta') drawLine(ctx, ref, s.key, xOf, yOf, css('--reference'), 1.25, [4, 3], s.step, 0.8);
-      // This lap: solid
-      drawLine(ctx, cur, s.key, xOf, yOf, css(s.color), 2, null, s.step, 1);
+      // legend: channel, value now (or at the cursor), best lap at the same point
+      drawStripLegend(ctx, s, plotX + 6, top + 3, nowS, refS);
 
-      // Label + value (text ink, colored swatch carries identity)
-      ctx.fillStyle = css(s.color);
-      ctx.fillRect(10, top + 3, 3, 12);
-      ctx.fillStyle = css('--muted');
-      ctx.fillText(`${s.label.toUpperCase()}${s.unit ? ' ' + s.unit : ''}`, 18, top + 13);
-      const now = cursor ? cursor.cur && cursor.cur[s.key] : liveCur && liveCur[s.key];
-      const refV = cursor ? cursor.ref && cursor.ref[s.key] : null;
-      ctx.fillStyle = css('--text');
-      ctx.font = '600 15px Consolas, "Roboto Mono", monospace';
-      if (height > 26) ctx.fillText(now == null ? '—' : s.fmt(now), 18, top + 31);
-      ctx.font = '11px Consolas, "Roboto Mono", monospace';
-      if (refV != null && height > 40 && s.key !== 'delta') {
-        ctx.fillStyle = css('--muted');
-        ctx.fillText(`best ${s.fmt(refV)}`, 18, top + 45);
-      }
-      ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+      // strip divider
+      ctx.strokeStyle = css('--line');
+      ctx.beginPath(); ctx.moveTo(0, Math.round(y + sh) + 0.5); ctx.lineTo(w, Math.round(y + sh) + 0.5); ctx.stroke();
       y += sh;
     }
+    const plotTop = y0, plotBottom = h - AXIS_H;
 
-    // Distance axis
-    ctx.fillStyle = css('--faint');
-    ctx.strokeStyle = css('--grid');
-    const step = maxD > 8000 ? 2000 : maxD > 3000 ? 1000 : 500;
-    ctx.beginPath();
-    for (let d = 0; d <= maxD; d += step) {
-      const x = Math.round(xOf(d)) + 0.5;
-      ctx.moveTo(x, 2); ctx.lineTo(x, h - axisH);
-      ctx.fillText(d >= 1000 ? `${(d / 1000).toFixed(d % 1000 ? 1 : 0)} km` : `${d} m`, x + 3, h - 6);
-    }
-    ctx.stroke();
-
-    // Sector boundaries (once learned from a lap) with S1/S2/S3 tags along the top
-    if (sectorStart[1] != null && sectorStart[2] != null) {
-      const starts = [0, sectorStart[1], sectorStart[2], 1];
-      ctx.strokeStyle = css('--faint');
-      ctx.setLineDash([1, 3]);
-      ctx.beginPath();
-      for (const f of starts.slice(1, 3)) {
-        const x = Math.round(xOf(f * maxD)) + 0.5;
-        ctx.moveTo(x, 2); ctx.lineTo(x, h - axisH);
-      }
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.font = '700 9px "Segoe UI", system-ui, sans-serif';
-      ctx.fillStyle = css('--faint');
-      for (let i = 0; i < 3; i++) ctx.fillText(`S${i + 1}`, xOf(starts[i] * maxD) + 5, 12);
-      ctx.font = '11px "Segoe UI", system-ui, sans-serif';
-    }
-
-    // Live position marker
-    if (liveCur) {
+    // ----- sector boundaries through every strip
+    if (splits) {
       ctx.strokeStyle = css('--faint');
       ctx.setLineDash([2, 3]);
       ctx.beginPath();
-      const x = Math.round(xOf(liveCur.d)) + 0.5;
-      ctx.moveTo(x, 2); ctx.lineTo(x, h - axisH);
+      for (const f of splits.slice(1, 3)) {
+        const x = Math.round(xOf(f * lapLen)) + 0.5;
+        if (x > plotX && x < plotX + plotW) { ctx.moveTo(x, ribbonY); ctx.lineTo(x, plotBottom); }
+      }
       ctx.stroke();
       ctx.setLineDash([]);
     }
-    // Hover crosshair across every strip
-    if (hoverD != null) {
+
+    // ----- distance axis: major labels, minor ticks
+    const span = v1 - v0;
+    const major = span > 6000 ? 1000 : span > 2500 ? 500 : span > 1000 ? 200 : 100;
+    const minor = major / 5;
+    ctx.strokeStyle = css('--faint');
+    ctx.fillStyle = css('--muted');
+    ctx.font = `10px ${MONO}`;
+    ctx.beginPath();
+    for (let d = Math.ceil(v0 / minor) * minor; d <= v1; d += minor) {
+      const x = Math.round(xOf(d)) + 0.5;
+      const isMajor = Math.abs(d / major - Math.round(d / major)) < 1e-6;
+      ctx.moveTo(x, plotBottom); ctx.lineTo(x, plotBottom + (isMajor ? 5 : 3));
+      if (isMajor) ctx.fillText(d >= 1000 ? `${(d / 1000).toFixed(major < 1000 ? 1 : 0)} km` : `${d} m`, x + 3, h - 5);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = css('--grid');
+    ctx.beginPath();
+    for (let d = Math.ceil(v0 / major) * major; d <= v1; d += major) {
+      const x = Math.round(xOf(d)) + 0.5;
+      ctx.moveTo(x, plotTop); ctx.lineTo(x, plotBottom);
+    }
+    ctx.stroke();
+
+    // ----- car position this lap: solid line with a marker on the axis
+    if (liveCur && liveCur.d >= v0 && liveCur.d <= v1) {
+      const x = Math.round(xOf(liveCur.d)) + 0.5;
       ctx.strokeStyle = css('--text');
-      ctx.globalAlpha = 0.6;
-      ctx.beginPath();
-      const x = Math.round(xOf(hoverD)) + 0.5;
-      ctx.moveTo(x, 2); ctx.lineTo(x, h - axisH);
-      ctx.stroke();
+      ctx.globalAlpha = 0.25;
+      ctx.beginPath(); ctx.moveTo(x, plotTop); ctx.lineTo(x, plotBottom); ctx.stroke();
       ctx.globalAlpha = 1;
       ctx.fillStyle = css('--text');
-      ctx.fillText(`${Math.round(hoverD)} m`, Math.min(x + 4, plotX + plotW - 50), h - axisH - 4);
+      ctx.beginPath(); ctx.moveTo(x - 5, plotBottom + 7); ctx.lineTo(x + 5, plotBottom + 7); ctx.lineTo(x, plotBottom + 1); ctx.closePath(); ctx.fill();
     }
-    drawTraces.geom = { plotX, plotW, maxD };
+
+    // ----- zoom selection
+    if (drag) {
+      const xa = Math.max(plotX, Math.min(drag.x0, drag.x1)), xb = Math.min(plotX + plotW, Math.max(drag.x0, drag.x1));
+      ctx.fillStyle = '#ffffff14';
+      ctx.fillRect(xa, plotTop, xb - xa, plotBottom - plotTop);
+      ctx.strokeStyle = css('--muted');
+      ctx.strokeRect(xa + 0.5, plotTop + 0.5, xb - xa - 1, plotBottom - plotTop - 1);
+    }
+
+    // ----- hover crosshair with a distance tag on the axis
+    if (hoverD != null && hoverD >= v0 && hoverD <= v1) {
+      const x = Math.round(xOf(hoverD)) + 0.5;
+      ctx.strokeStyle = css('--text');
+      ctx.globalAlpha = 0.7;
+      ctx.beginPath(); ctx.moveTo(x, plotTop); ctx.lineTo(x, plotBottom); ctx.stroke();
+      ctx.globalAlpha = 1;
+      const tag = `${Math.round(hoverD)} m`;
+      ctx.font = `600 10px ${MONO}`;
+      const tw = ctx.measureText(tag).width + 10;
+      const tx = Math.min(plotX + plotW - tw, Math.max(plotX, x - tw / 2));
+      ctx.fillStyle = css('--text');
+      ctx.fillRect(tx, plotBottom + 2, tw, AXIS_H - 4);
+      ctx.fillStyle = css('--bg');
+      ctx.fillText(tag, tx + 5, plotBottom + AXIS_H - 7);
+    }
+
+    $('zoomHint').textContent = zoom
+      ? `${(v0 / 1000).toFixed(2)}–${(v1 / 1000).toFixed(2)} km · double-click to reset`
+      : 'Drag to zoom';
+    drawTraces.geom = { plotX, plotW, v0, v1, lapLen };
   }
 
-  function drawLine(ctx, arr, key, xOf, yOf, color, width, dash, step, alpha) {
+  function drawStripLegend(ctx, s, x, y, nowS, refS) {
+    const parts = []; // [text, font, color] or swatch
+    parts.push([`${s.label.toUpperCase()}${s.unit ? ` ${s.unit}` : ''}`, `700 9px ${SANS}`, css('--muted')]);
+    for (const se of s.series) {
+      const v = nowS ? nowS[se.key] : null;
+      const r = refS ? refS[se.key] : null;
+      if (s.series.length > 1) parts.push({ swatch: css(se.color), area: se.area }, [se.short, `700 9px ${SANS}`, css('--muted')]);
+      parts.push([v == null || !Number.isFinite(v) ? '—' : s.fmt(v), `600 12px ${MONO}`, css('--text')]);
+      if (!s.noRef && r != null && Number.isFinite(r)) parts.push([`best ${s.fmt(r)}`, `10px ${MONO}`, css('--faint')]);
+    }
+    // measure, then draw on a backing plate so traces never make it unreadable
+    let width = 0;
+    for (const p of parts) {
+      if (p.swatch) { width += 14; continue; }
+      ctx.font = p[1];
+      width += ctx.measureText(p[0]).width + 8;
+    }
+    ctx.fillStyle = css('--panel');
+    ctx.globalAlpha = 0.96;
+    ctx.fillRect(x - 4, y - 1, width + 4, 17);
+    ctx.globalAlpha = 1;
+    let cx = x;
+    for (const p of parts) {
+      if (p.swatch) {
+        ctx.fillStyle = p.swatch;
+        if (p.area) ctx.fillRect(cx, y + 4, 10, 8);
+        else ctx.fillRect(cx, y + 7, 10, 2);
+        cx += 14;
+        continue;
+      }
+      ctx.font = p[1];
+      ctx.fillStyle = p[2];
+      ctx.fillText(p[0], cx, y + 12);
+      cx += ctx.measureText(p[0]).width + 8;
+    }
+  }
+
+  /** Delta: shade time lost (above zero) red and time gained (below) green. */
+  function drawDeltaFill(ctx, cur, xOf, yOf, plotX, plotW, top, bottom) {
+    const pts = cur.filter((p) => Number.isFinite(p.delta));
+    if (pts.length < 2) return;
+    const zy = yOf(0);
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(xOf(pts[0].d), zy);
+    for (const p of pts) ctx.lineTo(xOf(p.d), yOf(p.delta));
+    ctx.lineTo(xOf(pts[pts.length - 1].d), zy);
+    ctx.closePath();
+    ctx.clip();
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = css('--brake');
+    ctx.fillRect(plotX, top, plotW, zy - top);
+    ctx.fillStyle = css('--pb');
+    ctx.fillRect(plotX, zy, plotW, bottom - zy);
+    ctx.restore();
+    ctx.font = `700 9px ${SANS}`;
+    ctx.fillStyle = css('--faint');
+    ctx.textAlign = 'right';
+    ctx.fillText('SLOWER', plotX + plotW - 6, top + 11);
+    ctx.fillText('FASTER', plotX + plotW - 6, bottom - 4);
+    ctx.textAlign = 'left';
+  }
+
+  /** One trace. `areaBase` (a y pixel) fills down to it instead of drawing a plain line. */
+  function drawLine(ctx, arr, key, xOf, yOf, color, width, dash, step, alpha, from, to, areaBase) {
     if (!arr || arr.length < 2) return;
     ctx.save();
     ctx.strokeStyle = color;
@@ -763,30 +927,68 @@
     ctx.lineJoin = 'round';
     ctx.globalAlpha = alpha;
     if (dash) ctx.setLineDash(dash);
-    ctx.beginPath();
-    let started = false, prevY = null;
+    const margin = (to - from) * 0.02;
+    const runs = [];
+    let run = null, prevY = null;
     for (const p of arr) {
       const v = p[key];
-      if (v == null || !Number.isFinite(v)) { started = false; continue; }
-      const x = xOf(p.d), y = yOf(v);
-      if (!started) { ctx.moveTo(x, y); started = true; }
-      else if (step && prevY !== null) { ctx.lineTo(x, prevY); ctx.lineTo(x, y); }
-      else ctx.lineTo(x, y);
-      prevY = y;
+      if (v == null || !Number.isFinite(v) || p.d < from - margin || p.d > to + margin) { run = null; continue; }
+      const x = xOf(p.d), yy = yOf(v);
+      if (!run) { run = [[x, yy]]; runs.push(run); }
+      else if (step && prevY !== null) { run.push([x, prevY], [x, yy]); }
+      else run.push([x, yy]);
+      prevY = yy;
     }
-    ctx.stroke();
+    for (const r of runs) {
+      if (r.length < 2) continue;
+      ctx.beginPath();
+      r.forEach(([x, yy], i) => (i ? ctx.lineTo(x, yy) : ctx.moveTo(x, yy)));
+      if (areaBase) {
+        ctx.stroke();
+        ctx.lineTo(r[r.length - 1][0], areaBase);
+        ctx.lineTo(r[0][0], areaBase);
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.globalAlpha = alpha * 0.35;
+        ctx.fill();
+        ctx.globalAlpha = alpha;
+      } else ctx.stroke();
+    }
     ctx.restore();
   }
 
+  // Hover to read values; drag across the traces to zoom, double-click to reset
   const traceCanvas = $('traces');
+  const dAtX = (x) => {
+    const g = drawTraces.geom;
+    return g.v0 + (Math.max(0, Math.min(g.plotW, x - g.plotX)) / g.plotW) * (g.v1 - g.v0);
+  };
+  const canvasX = (e) => e.clientX - traceCanvas.getBoundingClientRect().left;
   traceCanvas.addEventListener('mousemove', (e) => {
     const g = drawTraces.geom;
     if (!g) return;
-    const r = traceCanvas.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    hoverD = x < g.plotX ? null : Math.max(0, Math.min(g.maxD, ((x - g.plotX) / g.plotW) * g.maxD));
+    const x = canvasX(e);
+    hoverD = x < g.plotX ? null : dAtX(x);
+    if (drag) drag.x1 = x;
     scheduleRender();
   });
+  traceCanvas.addEventListener('mousedown', (e) => {
+    const g = drawTraces.geom;
+    if (!g || e.button !== 0) return;
+    const x = canvasX(e);
+    if (x >= g.plotX) drag = { x0: x, x1: x };
+  });
+  window.addEventListener('mouseup', () => {
+    if (!drag) return;
+    const { x0, x1 } = drag;
+    drag = null;
+    if (Math.abs(x1 - x0) > 8) {
+      const a = dAtX(Math.min(x0, x1)), b = dAtX(Math.max(x0, x1));
+      if (b - a > 50) zoom = [a, b];
+    }
+    scheduleRender();
+  });
+  traceCanvas.addEventListener('dblclick', () => { zoom = null; scheduleRender(); });
   traceCanvas.addEventListener('mouseleave', () => { hoverD = null; scheduleRender(); });
 
   // ---------- track map ----------
@@ -1105,12 +1307,7 @@
     // Reference: your best sector on clean laps only (out laps and pit laps
     // don't count; the game's own "best sector" includes them)
     const lastEntry = history[history.length - 1];
-    const bestSector = (i, exclude) => {
-      const vals = history
-        .filter((l) => l !== exclude && l.valid && l.sectors && l.sectors[i] > 0)
-        .map((l) => l.sectors[i]);
-      return vals.length ? Math.min(...vals) : null;
-    };
+    const bestSector = bestCleanSector;
     // Completed sectors of this lap, or last lap's when we're past them
     const current = s.current || 1;
     $('sectors').innerHTML = [0, 1, 2].map((i) => {

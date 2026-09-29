@@ -23,10 +23,16 @@ Timing      Every car: position, class color, gap, last lap, best lap.
             the difference in best lap (like the official timing screens). On smaller screens the Last column is
             hidden; hover a car on the track map to see it.
 
-Traces      Speed, throttle, brake, gear, RPM and steering over one lap.
-(middle)    Solid line = this lap. Dashed line = your best clean lap.
-            The top strip is the delta: going up means losing time there.
-            Move the mouse over the traces to compare both laps at that spot.
+Traces      Like MoTeC / Atlas: time delta, speed, pedals (throttle line,
+(middle)    brake shaded), gear, engine RPM and steering over one lap.
+            Bright line = this lap. Faded line = your best clean lap.
+            Delta strip: red shading = losing time there, green = gaining.
+            Top ribbon: this lap's sectors, green = better than your best,
+            amber = slower. Numbers under the speed trace = apex (minimum
+            corner) speeds.
+            Mouse over the traces: each strip shows this lap and your best
+            lap at that exact spot. Drag across the traces to zoom into a
+            corner; double-click to zoom back out.
 
 Sectors     Your sector times against your best CLEAN lap (out laps and pit
             laps don't count). Green = faster (a new best), yellow = slower.
