@@ -190,6 +190,7 @@
   }
   .flag-banner.show { display: flex; }
   .flag-banner.green { background: var(--flag-green); }
+  .flag-banner.formation { background: var(--text); color: #111; }
   .flag-banner.chequered {
     color: #111; background:
       linear-gradient(90deg, #f2f2f2 0 70%, transparent 92%),
@@ -402,6 +403,7 @@
       zoom = null;
       lastSector = null;
       lastFlagState = null;
+      lastPhase = null;
       greenUntil = 0;
       ggTrail.length = 0;
       standings = [];
@@ -565,7 +567,7 @@
     if (!snap) return;
     const { session: s, vehicle: v } = snap;
     $('trackName').textContent = s.trackName || '—';
-    const PHASE_TEXT = { fullCourseYellow: 'full course yellow', gridwalk: 'grid walk' };
+    const PHASE_TEXT = { fullCourseYellow: 'full course yellow', gridwalk: 'on the grid', formation: 'formation lap', countdown: 'start' };
     // The game reports FCY and safety car as the same phase; the flags tell them apart
     const phase = s.phase === 'fullCourseYellow' && snap.flags && snap.flags.state === 'safetyCar' ? 'safety car' : PHASE_TEXT[s.phase] || s.phase;
     $('sessionLine').textContent = [s.type, phase].filter(Boolean).join(' · ');
@@ -1223,10 +1225,16 @@
   // Race clock in seconds (falls back to wall time), so banners last the same at any sim speed
   const raceClock = () => (snap && Number.isFinite(snap.session.elapsedSec) ? snap.session.elapsedSec : Date.now() / 1000);
 
+  const PRE_START = ['gridwalk', 'formation', 'countdown'];
+  let lastPhase = null, raceStartBanner = false;
   function trackFlagChange(flags) {
     const now = flags ? flags.state : null;
-    if (now === 'green' && lastFlagState && lastFlagState !== 'green' && lastFlagState !== 'other') greenUntil = raceClock() + 8;
+    const phase = snap ? snap.session.phase : null;
+    if (now === 'green' && lastFlagState && lastFlagState !== 'green' && lastFlagState !== 'other') { greenUntil = raceClock() + 8; raceStartBanner = false; }
+    // Green after the grid / formation lap: the race has started
+    if (phase === 'green' && PRE_START.includes(lastPhase)) { greenUntil = raceClock() + 8; raceStartBanner = true; }
     lastFlagState = now;
+    lastPhase = phase;
   }
 
   function renderFlags() {
@@ -1238,6 +1246,13 @@
       const where = `P${snap.vehicle.position ?? '—'}${snap.vehicle.classPosition && snap.vehicle.classPosition !== snap.vehicle.position ? ` · P${snap.vehicle.classPosition} in class` : ''}`;
       sub = snap.session.type === 'race' ? `Race finished · ${where}` : 'Session over';
       kind = 'chequered';
+    } else if (snap && PRE_START.includes(snap.session.phase)) {
+      const p = snap.session.phase;
+      title = p === 'gridwalk' ? 'ON THE GRID' : p === 'formation' ? 'FORMATION LAP' : 'START';
+      sub = p === 'gridwalk' ? `Starting P${snap.vehicle.position ?? '—'} · formation lap next`
+        : p === 'formation' ? (flags && flags.safetyCar ? 'Pace car leading · hold position' : 'Pace car in · rolling start at the line')
+        : 'Green flag coming';
+      kind = 'formation';
     } else if (flags) {
       const status = YELLOW_TEXT[flags.yellowState] || '';
       if (flags.state === 'safetyCar') {
@@ -1256,7 +1271,7 @@
         sub = names.length ? `Slow car: ${names.slice(0, 2).join(', ')}` : 'No overtaking in the sector';
       } else if (flags.state === 'green' && raceClock() < greenUntil) {
         title = 'GREEN FLAG';
-        sub = 'Track clear';
+        sub = raceStartBanner ? 'Race start' : 'Track clear';
         kind = 'green';
       }
     }

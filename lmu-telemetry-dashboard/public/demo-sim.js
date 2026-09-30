@@ -162,6 +162,8 @@
 
   let session = 'race';
   let state, player;
+  let qualiOrder = null; // car ids in qualifying order, used as the race grid
+  const GRID_SEC = 10, PACE_KPH = 110, LEAD_KPH = 90, GRID_GAP_M = 14;
   let runNo = 0; // seeds each run's plan
 
   /** What a car does after leaving the garage: the kinds of lap it drives before boxing again. */
@@ -187,12 +189,16 @@
       tireLaps: 0,
       tires: Object.fromEntries(['FL', 'FR', 'RL', 'RR'].map((k) => [k, { mid: inGarage ? 32 : 45, carcass: inGarage ? 30 : 40, brake: inGarage ? 60 : 120, wear: 0 }])),
       rc: { kind: 'green', until: 0, stopped: null, sectors: [false, false, false] },
-      cars: FIELD.map((c, i) => ({
+      cars: gridOrder(kind).map((c, i) => ({
         ...c, lapStart: 0, lastLap: null, bestLap: null, laps: 0, secT: [], lastSecs: null, v: 0,
         kind: 'race', plan: null, planIdx: 0, pit: 'none', garageUntil: 0, noise: 1,
-        // Race: on the grid. Practice / quali: in the garage, leaving at staggered times (you go first)
-        D: inGarage ? PIT_BOX - LAP_M : c.grid,
+        // Race: on the grid a lap before the start line (the formation lap brings them round).
+        // Practice / quali: in the garage, leaving at staggered times (you go first)
+        D: inGarage ? PIT_BOX - LAP_M : -LAP_M - 20 - i * GRID_GAP_M,
       })),
+      // Race start: 10 s on the grid, a formation lap behind the pace car, then the green flag
+      start: kind === 'race' ? { phase: 'grid', until: GRID_SEC, paceD: null, paceIn: false } : null,
+      greenT: null,
     };
     for (const c of s.cars) {
       if (!inGarage) continue;
@@ -201,6 +207,14 @@
     }
     return s;
   }
+  /** Race grid: the last qualifying result in this tab, else the default order. */
+  function gridOrder(kind) {
+    if (kind !== 'race' || !qualiOrder) return FIELD;
+    return [...FIELD].sort((a, b) => qualiOrder.indexOf(a.id) - qualiOrder.indexOf(b.id));
+  }
+  /** Session clock: the race clock only runs from the green flag. */
+  const sessionTime = () => (session === 'race' ? (state.greenT == null ? 0 : state.t - state.greenT) : state.t);
+
   function startSession(kind) {
     state = newState(kind);
     player = state.cars.find((c) => c.id === PLAYER.id);
@@ -216,6 +230,7 @@
   ];
   function callRaceControl(kind, dur) {
     if ((kind === 'fcy' || kind === 'sc') && session !== 'race') return;
+    if (session === 'race' && state.greenT == null) return; // not before the start
     const rc = state.rc;
     rc.kind = kind;
     rc.until = state.t + (dur || { yellow: 70, fcy: 90, sc: 150 }[kind] || 60);
@@ -235,43 +250,83 @@
     if (kind === 'sc') rc.scD = leader().D + 120;
   }
   const allFinished = () => state.cars.every((c) => c.finished);
+  const allParked = () => state.cars.every((c) => c.parked);
   const leader = () => state.cars.reduce((a, b) => (b.D > a.D ? b : a));
-  const limitKph = () => (state.rc.kind === 'fcy' ? 80 : state.rc.kind === 'sc' ? 120 : Infinity);
+  const limitKph = () => {
+    const st = state.start;
+    if (st && st.phase === 'formation') return st.paceIn ? LEAD_KPH : PACE_KPH;
+    return state.rc.kind === 'fcy' ? 80 : state.rc.kind === 'sc' ? 120 : Infinity;
+  };
   const inLapM = (D) => ((D % LAP_M) + LAP_M) % LAP_M;
 
   /** Classification: race by distance run; practice and qualifying by best lap (no time = at the back). */
   function classification() {
-    if (session === 'race') return [...state.cars].sort((a, b) => b.D - a.D);
+    if (session === 'race') return [...state.cars].sort((a, b) => classD(b) - classD(a));
     return [...state.cars].sort((a, b) => (a.bestLap || Infinity) - (b.bestLap || Infinity) || FIELD.findIndex((f) => f.id === a.id) - FIELD.findIndex((f) => f.id === b.id));
   }
 
-  function finish(c, atD, when) {
+  /**
+   * Take the chequered flag. The classification is frozen here (finishing order); a car
+   * that crossed the line does a slow cool-down lap into the pits, one already in the
+   * garage or pit lane is done.
+   */
+  function finish(c, atD, when, parked = false) {
     c.finished = true;
     c.finishT = when;
-    c.v = 0;
     state.finishers = (state.finishers || 0) + 1;
-    c.D = atD - state.finishers * 0.01; // park in finishing order
+    c.classD = atD - state.finishers * 0.01;
+    c.kind = 'in';
+    if (parked) { c.parked = true; c.pit = 'garage'; c.v = 0; }
+  }
+  const COOL_KPH = 100;
+  const classD = (c) => (c.finished ? c.classD : c.D);
+
+  /**
+   * Queue behind a car (or the pace / safety car) `gapM` metres ahead: too close, ease off to its
+   * speed; well behind (but within 1.5 km), close up at `closeKph`. Never closer than 4 m.
+   */
+  function follow(c, aheadD, aheadV, gapM, limit, closeKph) {
+    const gap = aheadD - c.D;
+    if (gap < gapM) limit = Math.min(limit, Math.max(0, aheadV - 1.5));
+    else if (gap > gapM + 15 && gap < 1500) limit = Math.max(limit, closeKph / 3.6);
+    return { limit, maxD: aheadD - 4 };
   }
 
   function step(dt) {
     state.t += dt;
-    const timeUp = state.t >= state.sec;
-    const cycle = state.t % 900;
+    const clock = sessionTime();
+    const timeUp = clock >= state.sec;
+    const cycle = clock % 900;
+    const started = session !== 'race' || state.greenT != null;
     for (const s of SCRIPT) {
       if (s.raceOnly && session !== 'race') continue;
-      if (cycle >= s.at && cycle - dt < s.at && state.rc.kind === 'green' && state.t < state.sec - 120) callRaceControl(s.kind, s.dur);
+      if (started && clock > dt && cycle >= s.at && cycle - dt < s.at && state.rc.kind === 'green' && clock < state.sec - 120) callRaceControl(s.kind, s.dur);
     }
+    // Race start: grid -> formation lap behind the pace car -> pace car pits -> green at the line
+    const st = state.start;
+    if (st && st.phase === 'grid' && state.t >= st.until) { st.phase = 'formation'; st.paceD = leader().D + 70; }
+    if (st && st.phase === 'formation') {
+      if (!st.paceIn) {
+        st.paceV = Math.min(PACE_KPH / 3.6, at(baseProfile.speed, st.paceD));
+        st.paceD += st.paceV * dt;
+        if (st.paceD > -LAP_M + 1000 && inLapM(st.paceD) >= PIT_IN) st.paceIn = true; // pace car into the pit lane
+      }
+      if (leader().D >= -120) { st.phase = 'green'; state.greenT = state.t; } // green flag just before the line
+    }
+    const formation = st && st.phase !== 'green';
     if (state.rc.kind !== 'green' && state.t >= state.rc.until) { state.rc.kind = 'green'; state.rc.stopped = null; state.rc.sectors = [false, false, false]; }
     // Practice / quali: at the flag, cars in the garage are done
-    if (timeUp && session !== 'race') { state.chequered = true; for (const c of state.cars) if (!c.finished && c.pit === 'garage') finish(c, c.D, state.t); }
+    if (timeUp && session !== 'race') { state.chequered = true; for (const c of state.cars) if (!c.finished && c.pit === 'garage') finish(c, c.D, state.t, true); }
 
     const cap = limitKph() / 3.6;
     const sc = state.rc.kind === 'sc';
-    if (sc) state.rc.scD += Math.min(cap, at(baseProfile.speed, state.rc.scD)) * dt;
-    // Order on the road for the safety car queue (cars behind close up, nobody passes)
-    const queue = sc ? [...state.cars].sort((a, b) => b.D - a.D) : null;
+    const scV = sc ? Math.min(cap, at(baseProfile.speed, state.rc.scD)) : 0;
+    if (sc) state.rc.scD += scV * dt;
+    // Order on the road for the safety car / formation queue (cars behind close up, nobody passes)
+    const queue = sc || formation ? [...state.cars].sort((a, b) => b.D - a.D) : null;
     for (const c of state.cars) {
-      if (c.finished) { c.v = 0; continue; }
+      if (c.parked) { c.v = 0; continue; }
+      if (st && st.phase === 'grid') { c.v = 0; continue; } // waiting on the grid
       if (c.pit === 'garage') {
         c.v = 0;
         if (state.t >= c.garageUntil) {
@@ -288,9 +343,16 @@
       const lapNo = Math.max(0, Math.floor(c.D / LAP_M));
       const prof = c === player ? playerProfile(lapNo) : baseProfile;
       let v = at(prof.speed, c.D) / (c === player ? 1 : c.pace) / KIND_PACE[c.kind] / c.noise;
-      if (c.D < 0 && c.pit === 'none') v = Math.min(v, 45); // rolling off the grid
       let limit = cap;
       let maxD = Infinity;
+      if (formation) {
+        // single file behind the pace car; once it has pitted the leader holds a steady pace
+        const i = queue.indexOf(c);
+        const ahead = i === 0 ? null : queue[i - 1];
+        limit = (st.paceIn ? LEAD_KPH : PACE_KPH) / 3.6;
+        if (ahead) ({ limit, maxD } = follow(c, ahead.D, ahead.v, GRID_GAP_M, limit, 140));
+        else if (!st.paceIn) ({ limit, maxD } = follow(c, st.paceD, st.paceV, 60, limit, 140));
+      }
       if (c.pit === 'none' && c.kind === 'in') {
         // brake down to the pit speed limit by the pit entry
         const toEntry = PIT_IN - inLapM(c.D);
@@ -302,13 +364,19 @@
         if (c.pit === 'in') maxD = Math.floor(c.D / LAP_M) * LAP_M + PIT_BOX; // stop at the garage
       }
       if (sc && c.pit === 'none') {
+        // 25 m car spacing, 60 m to the safety car; cars further back close up (lapped cars far behind just hold the limit)
         const i = queue.indexOf(c);
         const ahead = i === 0 ? null : queue[i - 1];
-        const target = ahead ? ahead.D - 25 : state.rc.scD - 60; // 25 m car spacing, 60 m to the safety car
-        if (target - c.D > 15 && target - c.D < 1500) limit = 165 / 3.6; // close the gap to the car ahead (lapped cars far behind just hold the limit)
-        maxD = Math.min(maxD, target);
+        const f = ahead ? follow(c, ahead.D, ahead.v, 25, limit, 165) : follow(c, state.rc.scD, scV, 60, limit, 165);
+        limit = f.limit;
+        maxD = Math.min(maxD, f.maxD);
       }
+      if (c.finished) limit = Math.min(limit, COOL_KPH / 3.6); // cool-down lap
       v = Math.min(v, limit);
+      // speed changes at what the car can do: accelerating out of a slow zone, braking down to a
+      // new limit (FCY, safety car, pit lane, cool-down) instead of dropping to it instantly
+      v = Math.min(v, c.v + Math.max(1.2, 10.5 * (1 - c.v / VMAX)) * dt);
+      v = Math.max(v, c.v - BRAKE * 1.05 * dt);
       if (state.rc.stopped === c.id) v = 0;
       const before = c.D;
       c.D = Math.max(before, Math.min(before + v * dt, maxD));
@@ -319,7 +387,8 @@
       if (c.pit === 'none' && c.kind === 'in' && dNow >= PIT_IN) c.pit = 'in';
       if (c.pit === 'in' && c.D >= maxD - 0.01) {
         c.garaged = true; // this lap won't get a time
-        if (state.chequered) { finish(c, c.D, state.t); continue; }
+        if (c.finished) { c.parked = true; c.pit = 'garage'; c.v = 0; continue; } // end of the cool-down lap
+        if (state.chequered) { finish(c, c.D, state.t, true); continue; }
         c.pit = 'garage';
         c.garageUntil = state.t + garageTime(c);
         c.v = 0;
@@ -354,9 +423,9 @@
           c.planIdx++;
           c.kind = c.plan[Math.min(c.planIdx, c.plan.length - 1)];
         }
-        if (c === player) { state.fuel = Math.max(2, state.fuel - 1.62); state.tireLaps++; }
+        if (c === player && lapBefore >= 0) { state.fuel = Math.max(2, state.fuel - 1.62); state.tireLaps++; }
         // Time is up: race leader first, then everyone as they cross; practice / quali everyone at their next crossing
-        if (timeUp && lapBefore >= 0 && (session !== 'race' || state.chequered || c === leader())) {
+        if (timeUp && !c.finished && lapBefore >= 0 && (session !== 'race' || state.chequered || c === leader())) {
           state.chequered = true;
           finish(c, lapAfter * LAP_M + 1, lineT);
         }
@@ -367,13 +436,13 @@
 
   function inputs() {
     const c = player;
-    if (c.pit === 'garage' || c.finished) return { kph: 0, thr: 0, brk: 0, gear: 1, rpm: 3200, steer: 0, gLat: 0, gLong: 0 };
+    if (c.pit === 'garage' || c.parked || (state.start && state.start.phase === 'grid')) return { kph: 0, thr: 0, brk: 0, gear: 1, rpm: 3200, steer: 0, gLat: 0, gLong: 0 };
     const lapNo = Math.max(0, Math.floor(c.D / LAP_M));
     const prof = playerProfile(lapNo);
     const kph = c.v * 3.6;
     // Held to a limit (FCY / SC / pit lane) or stopped
     const pitLimited = c.pit !== 'none' && kph >= PIT_KPH - 0.5;
-    const limited = state.rc.stopped === c.id || pitLimited || kph >= limitKph() - 0.5;
+    const limited = state.rc.stopped === c.id || pitLimited || kph >= limitKph() - 0.5 || (c.finished && kph >= COOL_KPH - 0.5);
     const easy = KIND_PACE[c.kind] > 1.05; // out, cool-down and in laps
     const thr = limited ? (state.rc.stopped === c.id ? 0 : 0.22) : nearest(prof.thr, c.D) * (easy ? 0.7 : 1);
     const brk = limited ? 0 : nearest(prof.brk, c.D) * (easy ? 0.75 : 1);
@@ -439,8 +508,11 @@
       session: {
         trackName: 'Demo Circuit · 5.4 km',
         type: SESSIONS[session].type,
-        phase: player.finished ? 'over' : rc.kind === 'fcy' || rc.kind === 'sc' ? 'fullCourseYellow' : 'green',
-        elapsedSec: r(state.t, 1),
+        phase: player.finished ? 'over'
+          : state.start && state.start.phase === 'grid' ? 'gridwalk'
+          : state.start && state.start.phase === 'formation' ? 'formation'
+          : rc.kind === 'fcy' || rc.kind === 'sc' ? 'fullCourseYellow' : 'green',
+        elapsedSec: r(sessionTime(), 1),
         endSec: state.sec,
         maxLaps: null,
         lapDistanceM: LAP_M,
@@ -452,13 +524,13 @@
         name: c.car,
         class: c.cls,
         driver: c.driver,
-        lap: Math.floor(c.D / LAP_M) + 1, // 0 while in the garage or on the grid before the line
+        lap: Math.max(0, Math.floor(c.D / LAP_M) + 1), // 0 in the garage, on the grid and on the formation lap
         lapsCompleted: c.laps,
         position: order.indexOf(c) + 1,
         classPosition: order.filter((o) => o.cls === c.cls).indexOf(c) + 1,
         lastLapSec: c.lastLap ? r(c.lastLap, 3) : null,
         bestLapSec: c.bestLap ? r(c.bestLap, 3) : null,
-        lapDistanceM: c.D < 0 && c.pit === 'none' ? 0 : Math.floor(d),
+        lapDistanceM: Math.floor(d),
         scoringLapBehind: false,
         currentLapSec: r(state.t - c.lapStart, 3),
         inPits: c.pit !== 'none',
@@ -484,10 +556,12 @@
       tires,
       damage: { maxDentSeverity: 0, dentedZones: {}, partsDetached: false, flatTires: [], detachedWheels: [] },
       flags: {
-        state: flagsState,
+        // before the start the game reports no flag (like LMU); the pace car shows on the map
+        state: state.start && state.start.phase !== 'green' ? 'other' : flagsState,
         sectorYellow: rc.sectors,
         yellowState,
-        safetyCar: rc.kind === 'sc' ? { lapDistM: Math.floor(inLapM(rc.scD)), speedKph: 120 } : null,
+        safetyCar: rc.kind === 'sc' ? { lapDistM: Math.floor(inLapM(rc.scD)), speedKph: 120 }
+          : state.start && state.start.phase === 'formation' && !state.start.paceIn ? { lapDistM: Math.floor(inLapM(state.start.paceD)), speedKph: PACE_KPH } : null,
         yellowLaps: rc.kind === 'fcy' || rc.kind === 'sc' ? 2 : null,
         rulesAvailable: true,
         slowCars: rc.stopped ? [rc.stopped] : [],
@@ -511,7 +585,7 @@
     const lead = order[0];
     const race = session === 'race';
     return order.map((c, i) => {
-      const behindM = lead.D - c.D;
+      const behindM = classD(lead) - classD(c);
       const lapsDown = race ? Math.floor(behindM / LAP_M) : 0;
       const [x, z] = posAt(c.D);
       return {
@@ -548,9 +622,12 @@
 
   /** Start a session and pre-run it until you have a clean flying lap, so the traces have a reference. */
   function begin(kind) {
+    // Leaving qualifying: its result becomes the race grid
+    if (state && session === 'qualifying') qualiOrder = classification().filter((c) => c.bestLap).map((c) => c.id).concat(classification().filter((c) => !c.bestLap).map((c) => c.id));
     startSession(kind);
-    // race: 2.35 laps from the grid; practice / quali: from the garage, out lap + 1 flying lap + a bit
-    while (player.D < LAP_M * 2.35 && state.t < 900) { step(DT); send('telemetry', snapshot()); }
+    // Race: start on the grid. Practice / quali: from the garage, out lap + 1 flying lap + a bit
+    if (kind === 'race') send('telemetry', snapshot());
+    else while (player.D < LAP_M * 2.35 && state.t < 900) { step(DT); send('telemetry', snapshot()); }
     send('standings', standings());
     updateControls();
   }
@@ -576,10 +653,12 @@
   window.__lmuDemo = {
     skipTo(sec) {
       let n = 0;
-      while (state.t < sec && !allFinished()) { step(DT); if (++n % 10 === 0) send('telemetry', snapshot()); }
+      while (state.t < sec && !allParked()) { step(DT); if (++n % 10 === 0) send('telemetry', snapshot()); }
       send('standings', standings());
     },
     begin,
+    // run `sec` more seconds of session time (every frame sent)
+    stepFor(sec) { const end = state.t + sec; while (state.t < end && !allParked()) { step(DT); send('telemetry', snapshot()); } },
   };
 
   /** Session from the link (#practice, #qualifying, #race), else the last one picked in this tab, else the race. */
@@ -598,8 +677,8 @@
     if (timer) return;
     timer = setInterval(() => {
       // After the flag, keep running until every car has finished; you stay parked
-      if (allFinished()) { send('telemetry', snapshot()); return; }
-      for (let i = 0; i < speed && !allFinished(); i++) { step(DT); send('telemetry', snapshot()); }
+      if (allParked()) { send('telemetry', snapshot()); return; }
+      for (let i = 0; i < speed && !allParked(); i++) { step(DT); send('telemetry', snapshot()); }
     }, 100);
     standingsTimer = setInterval(() => send('standings', standings()), 1000);
   }

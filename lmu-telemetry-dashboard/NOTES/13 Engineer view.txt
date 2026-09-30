@@ -95,7 +95,11 @@ Buttons under the timing bar:
                   Practice: cars run stints from the garage (out lap,
                   timed laps, in lap). Quali: out lap, two push laps,
                   cool-down lap, back to the garage. Both are ranked by
-                  best lap. Race: from the grid, with FCY and safety car.
+                  best lap. Race: rolling start (10 s on the grid,
+                  formation lap behind the pace car, green flag at the
+                  line), then FCY and safety car periods, chequered flag
+                  and a cool-down lap. Run Quali first and the race
+                  grid follows your qualifying result.
   Speed ......... 1x / 4x / 10x
   Race control .. Yellow, FCY, SC (race only), Green
   Restart ....... starts the current session again On a phone, slide a finger along the
