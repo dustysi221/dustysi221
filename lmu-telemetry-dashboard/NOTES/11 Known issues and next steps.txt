@@ -53,3 +53,7 @@ FLAGS ON THE ENGINEER MAP (new, not yet checked in the real game)
   If a yellow in LMU does NOT show on the map, open
   http://localhost:3000/api/snapshot while it is out and send me the
   "rawSectorFlags" numbers.
+
+Fixed: the engineer view kept the previous session's laps and best lap
+when LMU moved on (practice -> qualifying -> race). It now starts fresh
+when the session changes or restarts.

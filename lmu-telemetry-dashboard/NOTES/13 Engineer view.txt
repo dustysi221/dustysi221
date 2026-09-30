@@ -90,6 +90,13 @@ your iPhone:
   - From your own server: http://localhost:3000/engineer?demo
   - As one file: demo/pit-wall-demo.html (rebuild it with
     node scripts/build-demo.js)
-Buttons at the top: Speed 1x / 4x / 10x, and Race control (Yellow,
-FCY, SC, Green) to trigger flags. On a phone, slide a finger along the
+Buttons under the timing bar:
+  Session ....... Practice (60 min), Quali (15 min) or Race (90 min)
+                  Practice: cars run stints from the garage (out lap,
+                  timed laps, in lap). Quali: out lap, two push laps,
+                  cool-down lap, back to the garage. Both are ranked by
+                  best lap. Race: from the grid, with FCY and safety car.
+  Speed ......... 1x / 4x / 10x
+  Race control .. Yellow, FCY, SC (race only), Green
+  Restart ....... starts the current session again On a phone, slide a finger along the
 traces to read the values.

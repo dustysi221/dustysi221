@@ -387,7 +387,34 @@
   }
 
   // ---------- lap recording ----------
+  // A new session (practice -> qualifying -> race, a restart, another track) starts from scratch:
+  // otherwise the old session's best lap would stay the reference and the laps would mix
+  let sessionKey = null, lastElapsed = null;
+  function checkNewSession(d) {
+    const key = `${d.session.trackName}|${d.session.type}`;
+    const clockWentBack = lastElapsed != null && Number.isFinite(d.session.elapsedSec) && d.session.elapsedSec < lastElapsed - 5;
+    const newTrack = sessionKey != null && key.split('|')[0] !== sessionKey.split('|')[0];
+    if (sessionKey != null && (key !== sessionKey || clockWentBack)) {
+      lap.number = null;
+      lap.samples = [];
+      history.length = 0;
+      bestLap = null;
+      zoom = null;
+      lastSector = null;
+      lastFlagState = null;
+      greenUntil = 0;
+      ggTrail.length = 0;
+      standings = [];
+      if (newTrack) { trackBins.clear(); sectorStart[1] = sectorStart[2] = null; }
+      renderLaps();
+      renderTower();
+    }
+    sessionKey = key;
+    lastElapsed = d.session.elapsedSec;
+  }
+
   function onTelemetry(d) {
+    checkNewSession(d);
     snap = d;
     lastTelemetryAt = Date.now();
     lapLength = d.session.lapDistanceM || lapLength;
@@ -1373,7 +1400,10 @@
   }
 
   function renderLaps() {
-    if (!history.length) return;
+    if (!history.length) {
+      $('laps').innerHTML = '<tr><td colspan="8" class="empty">Laps appear here as you complete them.</td></tr>';
+      return;
+    }
     const best = bestLap ? bestLap.time : null;
     const pb = [0, 1, 2].map((i) => {
       const vals = history.filter((l) => l.valid && l.sectors && l.sectors[i] > 0).map((l) => l.sectors[i]);
