@@ -192,6 +192,16 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
 .chart-wrap .cap i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 5px; }
 #chart { width: 100%; height: 150px; display: block; }
 
+.seg { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.seg span { font-size: 12px; color: var(--muted); margin-right: 4px; }
+.seg button { cursor: pointer; background: var(--raise); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-size: 12px; color: var(--muted); }
+.seg button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+.loading {
+  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
+  font: 500 11px/1 var(--font-mono); letter-spacing: .08em; color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line); border-radius: 999px;
+  padding: 7px 12px; pointer-events: none; transition: opacity .5s; white-space: nowrap;
+}
 .features { display: grid; gap: 6px; }
 .feat {
   display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center;
@@ -256,6 +266,7 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
       <div class="run-tag" id="runTag">RUN 01 · <b>250 km/h</b> · yaw <b>0.0°</b><br>ρ 1.225 kg/m³ · A 1.95 m²</div>
     </div>
     <div class="hint" id="hint">Drag to orbit · scroll or pinch to zoom</div>
+    <div class="loading" id="loading">Loading car model…</div>
 
     <div class="view-bar" role="group" aria-label="Camera views">
       <button type="button" data-view="three">¾ front</button>
@@ -310,10 +321,16 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
       <h2>Visualise <span>toggle any mix</span></h2>
       <div class="modes">
         <button type="button" class="mode" data-mode="pressure" aria-pressed="true"><i class="sw"></i><b>Pressure zones</b><span>Heat map on the body</span></button>
-        <button type="button" class="mode" data-mode="particles" aria-pressed="true"><i class="sw"></i><b>Particles</b><span>Smoke in the tunnel</span></button>
-        <button type="button" class="mode" data-mode="streamlines" aria-pressed="false"><i class="sw"></i><b>Streamlines</b><span>Paths the air takes</span></button>
+        <button type="button" class="mode" data-mode="streamlines" aria-pressed="true"><i class="sw"></i><b>Smoke lines</b><span>Paths the air takes</span></button>
+        <button type="button" class="mode" data-mode="smoke" aria-pressed="true"><i class="sw"></i><b>Wake smoke</b><span>Turbulence behind the car</span></button>
+        <button type="button" class="mode" data-mode="particles" aria-pressed="false"><i class="sw"></i><b>Particles</b><span>Fast tracer streaks</span></button>
         <button type="button" class="mode" data-mode="vectors" aria-pressed="false"><i class="sw"></i><b>Vectors</b><span>Local speed and direction</span></button>
         <button type="button" class="mode" data-mode="forces" aria-pressed="true"><i class="sw"></i><b>Force arrows</b><span>Downforce, drag, side</span></button>
+      </div>
+      <div class="seg" role="group" aria-label="Airflow colour">
+        <span>Airflow colour</span>
+        <button type="button" data-tint="0" aria-pressed="true">White smoke</button>
+        <button type="button" data-tint="1" aria-pressed="false">By pressure</button>
       </div>
     </section>
 
@@ -373,6 +390,8 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/environments/RoomEnvironment.js"></script>
 <script>
 (() => {
 "use strict";
@@ -399,7 +418,8 @@ const isSmall = window.matchMedia("(max-width: 880px)").matches;
 const S = {
   speed: 250, yaw: 0, wing: 7,          // targets from sliders
   cSpeed: 250, cYaw: 0, cWing: 7,       // smoothed values that drive the scene
-  modes: { pressure: true, particles: true, streamlines: false, vectors: false, forces: true },
+  modes: { pressure: true, streamlines: true, smoke: true, particles: false, vectors: false, forces: true },
+  tint: 0,                              // airflow colour: 0 white smoke, 1 pressure
   pBlend: 1,                            // pressure heat-map blend 0..1
   time: 0,
 };
@@ -428,7 +448,7 @@ const Q300 = 0.5 * RHO * Math.pow(300 / 3.6, 2);
    Car geometry definition (shared by the mesh and the flow field)
    Car-local frame: +X forward (nose at +2.3), +Y up, Z across.
    ========================================================= */
-const XF = 2.3, XR = -2.3, LEN = XF - XR;
+let XF = 2.3, XR = -2.3, LEN = XF - XR;
 
 function makeTable(ts, vals, n = 400, smooth = 6) {
   const out = new Float32Array(n + 1);
@@ -450,14 +470,14 @@ function makeTable(ts, vals, n = 400, smooth = 6) {
 
 // Body: t = 0 at the nose, 1 at the tail
 const BT = [0, .03, .08, .15, .22, .30, .45, .60, .72, .80, .88, .95, 1];
-const bodyW  = makeTable(BT, [.50, .82, .94, 1.0, 1.0, .96, .94, .97, 1.02, 1.02, 1.0, .97, .92]);
-const bodyYb = makeTable(BT, [.22, .13, .10, .10, .10, .10, .10, .10, .10, .10, .12, .16, .20]);
-const bodyYt = makeTable(BT, [.26, .45, .56, .63, .69, .75, .82, .88, .93, .95, .95, .92, .82]);
+let bodyW  = makeTable(BT, [.50, .82, .94, 1.0, 1.0, .96, .94, .97, 1.02, 1.02, 1.0, .97, .92]);
+let bodyYb = makeTable(BT, [.22, .13, .10, .10, .10, .10, .10, .10, .10, .10, .12, .16, .20]);
+let bodyYt = makeTable(BT, [.26, .45, .56, .63, .69, .75, .82, .88, .93, .95, .95, .92, .82]);
 // Cabin (greenhouse), defined on body t between CT0 and CT1
-const CT0 = .30, CT1 = .76;
+let CT0 = .30, CT1 = .76;
 const CTs = [0, .13, .33, .55, .78, 1];
-const cabW  = makeTable(CTs, [.46, .60, .63, .61, .52, .38], 400, 4);
-const cabYt = makeTable(CTs, [0, .98, 1.16, 1.17, 1.06, 0], 400, 4);   // 0 = sits on body
+let cabW  = makeTable(CTs, [.46, .60, .63, .61, .52, .38], 400, 4);
+let cabYt = makeTable(CTs, [0, .98, 1.16, 1.17, 1.06, 0], 400, 4);   // 0 = sits on body
 
 function tOf(x) { return (XF - x) / LEN; }
 function bodySec(x) {
@@ -473,7 +493,29 @@ function cabSec(x) {
   const yt = Math.max(bt + 0.01, cabYt(u));
   return { w: cabW(u), yc: (yb + yt) / 2, hh: Math.max(0.012, (yt - yb) / 2) };
 }
-const CAB_XF = XF - CT0 * LEN, CAB_XR = XF - CT1 * LEN;
+let CAB_XF = XF - CT0 * LEN, CAB_XR = XF - CT1 * LEN;
+let AXLE_F = 1.45, AXLE_R = -1.3;
+
+// Outline measured from the detailed 3D model (tools/usdz_to_glb.py), nose -> tail
+const MEASURED = {"xf":2.281,"xr":-2.305,"w":[0.569,0.758,0.905,1.019,1.088,1.114,1.115,1.11,1.105,1.102,1.099,1.094,1.088,1.082,1.076,1.071,1.06,1.028,1.065,1.038,0.988,0.978,0.936,0.933,0.969,0.983,0.983,0.991,1.001,0.999,1.017,1.042,1.05,1.074,1.079,1.084,1.093,1.099,1.105,1.108,1.11,1.106,1.11,1.088,1.067,0.862,0.731,1.034],"yb":[0.04,0.031,0.03,0.029,0.032,0.033,0.046,0.039,0.043,0.032,0.042,0.044,0.046,0.057,0.055,0.041,0.05,0.098,0.094,0.103,0.083,0.084,0.139,0.15,0.11,0.095,0.104,0.08,0.083,0.104,0.159,0.088,0.059,0.063,0.064,0.064,0.065,0.042,0.037,0.047,0.048,0.082,0.125,0.198,0.219,0.218,0.235,0.094],"shoulder":[0.287,0.38,0.418,0.493,0.564,0.606,0.653,0.685,0.711,0.715,0.726,0.724,0.724,0.719,0.734,0.789,0.845,0.883,0.93,0.982,1.003,1.01,1.011,1.013,1.013,1.002,0.976,0.967,0.964,0.918,0.916,0.876,0.885,0.884,0.866,0.867,0.865,0.86,0.845,0.845,0.851,0.844,0.821,0.906,0.884,0.786,0.607,0.923],"roof":[0.384,0.433,0.49,0.523,0.554,0.586,0.603,0.603,0.628,0.676,0.71,0.728,0.742,0.785,0.774,0.868,0.941,0.978,1.016,1.065,1.109,1.138,1.121,1.201,1.204,1.121,1.132,1.224,1.345,1.345,1.049,1.035,1.001,0.97,0.952,0.932,0.909,0.889,0.863,0.832,0.831,0.807,0.783,0.759,0.741,0.745,0.755,0.608],"roofW":[0.355,0.396,0.531,0.65,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.268,0.517,0.498,0.409,0.509,0.475,0.415,0.346,0.381,0.445,0.494,0.5,0.487,0.472,0.472,0.469,0.542,0.463,0.545,0.454,0.438,0.469,0.402,0.0,0.0,0.0,0.0,0.0,0.0,0.501,1.003,1.016,1.012,0.812,1.03],"height":1.201};
+function useMeasuredOutline() {
+  const M = MEASURED, n = M.w.length;
+  const ts = M.w.map((_, i) => i / (n - 1));
+  const fix = (a) => { a = a.slice(); a[n - 1] = a[n - 2]; return a; };
+  const w = fix(M.w), yb = fix(M.yb).map((v) => Math.min(0.24, Math.max(0.05, v)));
+  const top = fix(M.shoulder).map((v) => Math.min(0.9, v));
+  const roof = fix(M.roof).map((v) => Math.min(1.2, v));
+  const rw = fix(M.roofW);
+  XF = M.xf; XR = M.xr; LEN = XF - XR;
+  bodyW = makeTable(ts, w, 400, 8);
+  bodyYb = makeTable(ts, yb, 400, 8);
+  bodyYt = makeTable(ts, top, 400, 8);
+  CT0 = 0; CT1 = 1; CAB_XF = XF; CAB_XR = XR;
+  cabYt = makeTable(ts, roof.map((r, i) => (r > top[i] + 0.04 ? r : 0)), 400, 6);
+  cabW = makeTable(ts, rw.map((v) => Math.min(0.6, Math.max(0.32, v > 0.25 ? v : 0.45))), 400, 6);
+  AXLE_F = 1.22; AXLE_R = -1.43;
+  WING.x = -2.15; WING.y = 1.1; WING.span = 0.95;
+}
 
 // Approximate signed distance to a superelliptic loft
 function loftSD(x, y, z, sec, x0, x1) {
@@ -497,7 +539,7 @@ function carSD(x, y, z) {
 /* =========================================================
    Flow field (analytic approximation, car-local frame)
    ========================================================= */
-const WING = { x: -2.14, y: 1.30, span: 0.93 };
+var WING = { x: -2.14, y: 1.30, span: 0.93 };
 const flow = { ux: -1, uz: 0, load: 1 };  // local free-stream direction + wing load factor
 
 function noise3(x, y, z, t) {
@@ -554,14 +596,14 @@ function field(x, y, z, t, out) {
     const az = Math.abs(z);
     const sw = az < WING.span ? 1 : Math.max(0, 1 - (az - WING.span) / 0.25);
     if (sw > 0) {
-      const r2 = dx * dx + dy * dy + 0.02;
-      const Gm = 0.085 * L * sw;
+      const r2 = dx * dx + dy * dy + 0.06;
+      const Gm = 0.07 * L * sw;
       vx += Gm * dy / r2;
       vy += -Gm * dx / r2;
     }
     if (x < WING.x + 0.1) {
       const dz = az - WING.span, dyy = y - (WING.y - 0.04);
-      const r2 = dz * dz + dyy * dyy + 0.015;
+      const r2 = dz * dz + dyy * dyy + 0.04;
       const decay = Math.exp((x - WING.x) / 1.8);
       const Sv = 0.05 * L * decay;
       vz += Math.sign(z || 1) * Sv * dyy / r2;
@@ -616,7 +658,7 @@ function emphasise(v, out, floor) {
 function cpToHeat(cp) {
   const s = S.cSpeed * S.cSpeed / (300 * 300);
   const p = cp * s;
-  return p < 0 ? p / 1.6 : p / 1.0;
+  return p < 0 ? p / 1.1 : p / 0.8;
 }
 
 /* =========================================================
@@ -644,7 +686,11 @@ controls.maxPolarAngle = Math.PI * 0.62;
 controls.autoRotateSpeed = 1.2;
 controls.enablePan = false;
 
-scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x1a1410, 0.75));
+if (THREE.RoomEnvironment) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+}
+scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x1a1410, 0.45));
 const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(4, 7, 5); scene.add(key);
 const rim = new THREE.DirectionalLight(0x88b8ff, 0.8); rim.position.set(-6, 3, -4); scene.add(rim);
 const fill = new THREE.DirectionalLight(0xffc9a0, 0.35); fill.position.set(0, 1, -6); scene.add(fill);
@@ -652,7 +698,7 @@ const fill = new THREE.DirectionalLight(0xffc9a0, 0.35); fill.position.set(0, 1,
 // Tunnel floor + rolling road
 const floor = new THREE.Mesh(
   new THREE.CircleGeometry(22, 64),
-  new THREE.MeshStandardMaterial({ color: 0x080b0f, roughness: 1, metalness: 0 })
+  new THREE.MeshStandardMaterial({ color: 0x080b0f, roughness: 1, metalness: 0, envMapIntensity: 0 })
 );
 floor.rotation.x = -Math.PI / 2; scene.add(floor);
 const grid = new THREE.GridHelper(40, 80, 0x1b232d, 0x121820);
@@ -673,6 +719,16 @@ road.rotation.x = -Math.PI / 2; road.rotation.z = Math.PI / 2; road.position.y =
 
 /* ---------- Car ---------- */
 const car = new THREE.Group(); scene.add(car);
+// soft contact shadow that turns with the car
+{
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d"), gr = g.createRadialGradient(64, 64, 8, 64, 64, 64);
+  gr.addColorStop(0, "rgba(0,0,0,0.85)"); gr.addColorStop(0.6, "rgba(0,0,0,0.45)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  const sh = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 2.9), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+  sh.rotation.x = -Math.PI / 2; sh.position.y = 0.006; sh.renderOrder = 1;
+  scene.add(sh); car.userData.shadow = sh;
+}
 const colorable = []; // meshes whose vertex colours show pressure
 
 function matStd(color, opts = {}) {
@@ -879,6 +935,70 @@ scene.fog.color.convertSRGBToLinear();
 const featMats = {};
 for (const k in feats) featMats[k] = feats[k].map((m) => m.material);
 
+// Everything built so far is the simplified stand-in car; it stays as the fallback
+const proc = new THREE.Group();
+while (car.children.length) proc.add(car.children[0]);
+car.add(proc);
+
+/* ---------- Detailed model (McLaren 720S LMGT3 EVO, converted from USDZ) ---------- */
+const MODEL_URL = "mclaren-720s-gt3-evo.glb";
+let model = null;
+// Shared uniforms for the pressure overlay and the feature highlight on the model's own materials
+const HEATU = {
+  uHeatBlend: { value: 1 },
+  uCarInv: { value: new THREE.Matrix4() },
+  uHiMin: { value: new THREE.Vector3() },
+  uHiMax: { value: new THREE.Vector3() },
+  uHiAmt: { value: 0 },
+};
+function addHeatOverlay(mat) {
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, HEATU);
+    sh.vertexShader = "attribute vec3 heat;\nvarying vec3 vHeat;\nvarying vec3 vCarPos;\nuniform mat4 uCarInv;\n" +
+      sh.vertexShader.replace("#include <begin_vertex>",
+        "#include <begin_vertex>\nvHeat = heat;\nvCarPos = (uCarInv * modelMatrix * vec4(transformed, 1.0)).xyz;");
+    sh.fragmentShader = "uniform float uHeatBlend;\nuniform vec3 uHiMin;\nuniform vec3 uHiMax;\nuniform float uHiAmt;\nvarying vec3 vHeat;\nvarying vec3 vCarPos;\n" +
+      sh.fragmentShader
+        .replace("#include <map_fragment>", "#include <map_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vHeat, uHeatBlend);\ndiffuseColor.a = mix(diffuseColor.a, 1.0, uHeatBlend * 0.6);")
+        .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.55, uHeatBlend);")
+        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.0, uHeatBlend);")
+        .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n{ vec3 q = vec3(vCarPos.x, vCarPos.y, abs(vCarPos.z)); vec3 inb = step(uHiMin, q) * step(q, uHiMax);\n  totalEmissiveRadiance += vec3(1.0, 0.42, 0.04) * inb.x * inb.y * inb.z * uHiAmt; }");
+  };
+  mat.customProgramCacheKey = () => "heat-overlay";
+}
+const loadingEl = document.getElementById("loading");
+function loadModel() {
+  if (!THREE.GLTFLoader) { loadingEl.textContent = "Showing the simplified car"; setTimeout(() => (loadingEl.style.opacity = 0), 3000); return; }
+  new THREE.GLTFLoader().load(MODEL_URL, (gltf) => {
+    model = gltf.scene;
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      const m = o.material;
+      if (m.name === "Window") { m.color.setRGB(0.012, 0.016, 0.02); m.metalness = 0.6; m.roughness = 0.04; m.opacity = 0.82; }
+      m.envMapIntensity = 0.9;
+      addHeatOverlay(m);
+      const n = o.geometry.attributes.position.count;
+      o.geometry.setAttribute("heat", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+      o.userData.part = "model";
+      o.userData.shaderHeat = true;
+      o.userData.cp = new Float32Array(n);
+    });
+    // swap the stand-in for the real car and fit the flow field to its outline
+    colorable.length = 0;
+    model.traverse((o) => { if (o.isMesh) colorable.push(o); });
+    car.add(model);
+    proc.visible = false;
+    useMeasuredOutline();
+    dirty.surface = dirty.stream = dirty.vec = true; lastCpKey = "";
+    loadingEl.style.opacity = 0;
+  }, (e) => {
+    if (e.total) loadingEl.textContent = "Loading car model " + Math.round(e.loaded / e.total * 100) + "%";
+  }, () => {
+    loadingEl.textContent = "Couldn't load the detailed model. Showing the simplified car.";
+    setTimeout(() => (loadingEl.style.opacity = 0), 4000);
+  });
+}
+
 /* ---------- Surface pressure ---------- */
 const _m = new THREE.Matrix4(), _nm = new THREE.Matrix3(), _v = new THREE.Vector3(), _n = new THREE.Vector3();
 function gauss(x, mu, s) { const d = (x - mu) / s; return Math.exp(-d * d); }
@@ -889,6 +1009,22 @@ function surfaceCp(part, px, py, pz, nx, ny, nz) {
   const s2 = 1 - c * c;
   let cp = c >= 0 ? 1 - 2.25 * s2 : -0.3 - 0.95 * s2;
   cp = Math.max(-1.6, cp);
+  if (part === "model") {
+    // classify the detailed mesh by position
+    if (px < WING.x + 0.32 && py > WING.y - 0.18) part = "wing";
+    else if (px > XF - 0.4 && py < 0.16) part = "splitter";
+    else if (px < -1.55 && py < 0.42 && ny < -0.3) part = "diffuser";
+    else {
+      part = "body";
+      const s = bodySec(px), top = s.yc + s.hh;
+      // flat side panels see far milder suction than the curved roof and bonnet
+      const side = nz * nz;
+      if (cp < 0) cp = cp * (1 - 0.7 * side) - 0.25 * side;
+      if (ny > 0.3 && cp < 0) cp *= 0.55 + 0.45 * Math.min(1, Math.max(0, (py - 0.75) / 0.35));
+      // base of the windscreen and bonnet leading edges collect pressure
+      if (py > top - 0.05 && c > 0.3 && ny > 0.15 && px > -0.6 && px < 1.2) cp = Math.max(cp, 0.3 + 0.45 * c);
+    }
+  }
   switch (part) {
     case "body":
     case "cabin":
@@ -899,6 +1035,8 @@ function surfaceCp(part, px, py, pz, nx, ny, nz) {
       }
       // rear deck under the wing sees the wing's suction
       if (part === "body" && ny > 0.5 && px < -1.6) cp -= 0.35 * L;
+      // wheel wells and the floor edge sit in fast, low-pressure air
+      if (py < 0.1 && ny < -0.2) cp = Math.min(cp, -0.9);
       break;
     case "wing":
       if (ny > 0.25) cp = 0.3 + 0.35 * L;
@@ -918,6 +1056,21 @@ function surfaceCp(part, px, py, pz, nx, ny, nz) {
   return cp;
 }
 
+// Quantized (KHR_mesh_quantization) attributes arrive as normalized integers
+function attrScale(a) {
+  if (!a.normalized) return 1;
+  const arr = a.isInterleavedBufferAttribute ? a.data.array : a.array;
+  if (arr instanceof Int16Array) return 1 / 32767;
+  if (arr instanceof Uint16Array) return 1 / 65535;
+  if (arr instanceof Int8Array) return 1 / 127;
+  if (arr instanceof Uint8Array) return 1 / 255;
+  return 1;
+}
+// Pressure colours read best under flatter light, so dim the studio reflections as they fade in
+function setHeatBlend(b) {
+  HEATU.uHeatBlend.value = b;
+  if (model) model.traverse((o) => { if (o.isMesh) o.material.envMapIntensity = 0.9 - 0.75 * b; });
+}
 function updateSurfaceCp() {
   car.updateMatrixWorld(true);
   const inv = new THREE.Matrix4().copy(car.matrixWorld).invert();
@@ -925,9 +1078,10 @@ function updateSurfaceCp() {
     _m.multiplyMatrices(inv, mesh.matrixWorld);
     _nm.getNormalMatrix(_m);
     const P = mesh.geometry.attributes.position, N = mesh.geometry.attributes.normal, cp = mesh.userData.cp;
+    const ps = attrScale(P), ns = attrScale(N);
     for (let i = 0; i < P.count; i++) {
-      _v.fromBufferAttribute(P, i).applyMatrix4(_m);
-      _n.fromBufferAttribute(N, i).applyMatrix3(_nm).normalize();
+      _v.set(P.getX(i) * ps, P.getY(i) * ps, P.getZ(i) * ps).applyMatrix4(_m);
+      _n.set(N.getX(i) * ns, N.getY(i) * ns, N.getZ(i) * ns).applyMatrix3(_nm).normalize();
       cp[i] = surfaceCp(mesh.userData.part, _v.x, _v.y, _v.z, _n.x, _n.y, _n.z);
     }
   }
@@ -935,7 +1089,17 @@ function updateSurfaceCp() {
 const _hc = [0, 0, 0];
 function paintSurfaces() {
   const b = S.pBlend;
+  setHeatBlend(b);
   for (const mesh of colorable) {
+    if (mesh.userData.shaderHeat) {
+      const H = mesh.geometry.attributes.heat, cp = mesh.userData.cp, arr = H.array;
+      for (let i = 0; i < cp.length; i++) {
+        heat(cpToHeat(cp[i]), _hc);
+        arr[i * 3] = _hc[0] * _hc[0] * 0.8; arr[i * 3 + 1] = _hc[1] * _hc[1] * 0.8; arr[i * 3 + 2] = _hc[2] * _hc[2] * 0.8;
+      }
+      H.needsUpdate = true;
+      continue;
+    }
     const C = mesh.geometry.attributes.color, cp = mesh.userData.cp, base = mesh.userData.base;
     const arr = C.array;
     for (let i = 0; i < cp.length; i++) {
@@ -1014,58 +1178,170 @@ function stepParticles(dt) {
   streakGeo.attributes.color.needsUpdate = true;
 }
 
-/* ---------- Streamlines ---------- */
-const slMat = new THREE.ShaderMaterial({
-  uniforms: { uTime: { value: 0 }, uSpeed: { value: 1 }, uAmp: { value: 1 } },
-  vertexShader: `
-    attribute vec3 col; attribute float arc;
-    varying vec3 vCol; varying float vArc;
-    void main(){ vCol = col; vArc = arc; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-  fragmentShader: `
-    uniform float uTime; uniform float uSpeed; uniform float uAmp;
-    varying vec3 vCol; varying float vArc;
-    void main(){
-      float ph = fract(vArc * 0.45 - uTime * uSpeed);
-      float pulse = smoothstep(0.7, 1.0, ph) * 1.6;
-      gl_FragColor = vec4(vCol * (0.28 + pulse) * uAmp, 1.0);
-    }`,
-  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-});
-const slGeo = new THREE.BufferGeometry();
-const streamlines = new THREE.LineSegments(slGeo, slMat);
-streamlines.frustumCulled = false; scene.add(streamlines);
+/* ---------- Smoke lines (glowing ribbons, like a smoke rake in a real tunnel) ---------- */
+const GLSL_HEAT = `
+  vec3 heatc(float v){
+    v = clamp(v, -1.0, 1.0);
+    vec3 c0 = vec3(0.106,0.231,1.0), c1 = vec3(0.122,0.482,1.0), c2 = vec3(0.235,0.784,1.0), c3 = vec3(0.725,0.776,0.824);
+    vec3 c4 = vec3(1.0,0.824,0.247), c5 = vec3(1.0,0.478,0.102), c6 = vec3(1.0,0.165,0.165);
+    if (v < -0.62) return mix(c0, c1, (v + 1.0) / 0.38);
+    if (v < -0.3) return mix(c1, c2, (v + 0.62) / 0.32);
+    if (v < 0.0) return mix(c2, c3, (v + 0.3) / 0.3);
+    if (v < 0.3) return mix(c3, c4, v / 0.3);
+    if (v < 0.65) return mix(c4, c5, (v - 0.3) / 0.35);
+    return mix(c5, c6, (v - 0.65) / 0.35);
+  }`;
+const RIB_U = { uTime: { value: 0 }, uSpeed: { value: 1 }, uTint: { value: 0 }, uSpeedScale: { value: 1 }, uAmp: { value: 1 } };
+function ribbonMaterial(width, alpha, pulse) {
+  return new THREE.ShaderMaterial({
+    uniforms: Object.assign({ uWidth: { value: width }, uAlpha: { value: alpha }, uPulse: { value: pulse } }, RIB_U),
+    vertexShader: `
+      uniform float uWidth;
+      attribute vec3 tang; attribute float side; attribute float arc; attribute float cp; attribute float fade;
+      varying float vSide; varying float vArc; varying float vCp; varying float vFade;
+      void main(){
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vec3 t = normalize((modelViewMatrix * vec4(tang, 0.0)).xyz + 1e-5);
+        vec3 n = normalize(cross(t, normalize(mv.xyz)) + 1e-5);
+        mv.xyz += n * side * uWidth;
+        vSide = side; vArc = arc; vCp = cp; vFade = fade;
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform float uAlpha; uniform float uPulse; uniform float uTime; uniform float uSpeed;
+      uniform float uTint; uniform float uSpeedScale; uniform float uAmp;
+      varying float vSide; varying float vArc; varying float vCp; varying float vFade;
+      ${GLSL_HEAT}
+      void main(){
+        float edge = 1.0 - vSide * vSide; edge *= edge;
+        float ph = fract(vArc * 0.32 - uTime * uSpeed);
+        float glow = 0.75 + uPulse * smoothstep(0.55, 1.0, ph);
+        float p = vCp * uSpeedScale; p = p < 0.0 ? p / 1.1 : p / 0.8;
+        vec3 smoke = vec3(0.9, 0.94, 1.0);
+        vec3 col = mix(smoke, heatc(p), uTint);
+        gl_FragColor = vec4(col * edge * vFade * uAlpha * glow * uAmp, 1.0);
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+}
+const ribGeo = new THREE.BufferGeometry();
+const ribGlow = new THREE.Mesh(ribGeo, ribbonMaterial(0.05, 0.05, 0.6));
+const ribCore = new THREE.Mesh(ribGeo, ribbonMaterial(0.011, 0.55, 1.1));
+ribGlow.frustumCulled = ribCore.frustumCulled = false;
+const streamlines = new THREE.Group(); streamlines.add(ribGlow, ribCore); scene.add(streamlines);
 
+// Trace one path through the field (midpoint integration, world space)
+function tracePath(x, y, z, h, maxN) {
+  const pts = [];
+  let s = 0;
+  for (let n = 0; n < maxN; n++) {
+    toLocal(x, z, _l); field(_l[0], y, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
+    pts.push(x, y, z, _f[3], s);
+    let sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
+    const mx = x + _w[0] / sp * h * 0.5, my = Math.max(0.02, y + _f[1] / sp * h * 0.5), mz = z + _w[1] / sp * h * 0.5;
+    toLocal(mx, mz, _l); field(_l[0], my, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
+    sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
+    x += _w[0] / sp * h; y = Math.max(0.02, y + _f[1] / sp * h); z += _w[1] / sp * h;
+    s += h;
+    if (x < -7.5 || y > 3) break;
+  }
+  return pts;
+}
 function buildStreamlines() {
-  const pos = [], col = [], arc = [];
-  const ys = [0.05, 0.2, 0.38, 0.58, 0.8, 1.0, 1.2, 1.38, 1.6];
-  const zs = isSmall ? [-1.2, -0.6, 0, 0.6, 1.2] : [-1.5, -1.05, -0.6, -0.2, 0.2, 0.6, 1.05, 1.5];
-  const h = 0.06;
+  const pos = [], tang = [], side = [], arc = [], cps = [], fade = [], idx = [];
+  const ys = isSmall ? [0.08, 0.3, 0.52, 0.74, 0.94, 1.12, 1.3] : [0.06, 0.2, 0.34, 0.48, 0.62, 0.76, 0.9, 1.04, 1.16, 1.28, 1.42];
+  const zs = isSmall ? [-0.9, -0.45, 0, 0.45, 0.9] : [-1.15, -0.85, -0.55, -0.28, 0, 0.28, 0.55, 0.85, 1.15];
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   for (const y0 of ys) for (const z0 of zs) {
-    let x = 6, y = y0, z = z0, s = Math.random() * 3;
-    let px, py, pz, pc;
-    for (let n = 0; n < 260; n++) {
-      toLocal(x, z, _l);
-      field(_l[0], y, _l[1], 0, _f);
-      toWorld(_f[0], _f[2], _w);
-      const hv = cpToHeat(_f[3]);
-      emphasise(hv, heat(hv, _hc), 0.35);
-      if (n > 0) {
-        pos.push(px, py, pz, x, y, z);
-        col.push(pc[0], pc[1], pc[2], _hc[0], _hc[1], _hc[2]);
-        arc.push(s - h, s);
+    const pts = tracePath(5.5, y0 + (rnd() - 0.5) * 0.04, z0 + (rnd() - 0.5) * 0.06, 0.045, 320);
+    const n = pts.length / 5;
+    if (n < 3) continue;
+    const base = pos.length / 3;
+    const off = rnd() * 6;
+    for (let i = 0; i < n; i++) {
+      const o = i * 5, a = Math.max(0, i - 1) * 5, b = Math.min(n - 1, i + 1) * 5;
+      const tx = pts[b] - pts[a], ty = pts[b + 1] - pts[a + 1], tz = pts[b + 2] - pts[a + 2];
+      const u = i / (n - 1);
+      const x = pts[o];
+      // fade in at the rake, dissolve into the wake behind the car
+      let f = Math.min(1, u / 0.06) * (1 - Math.max(0, (u - 0.8) / 0.2));
+      const behind = XR * cosY - x;
+      if (behind > 0) f *= Math.exp(-behind / 1.4);
+      for (const sd of [-1, 1]) {
+        pos.push(pts[o], pts[o + 1], pts[o + 2]);
+        tang.push(tx, ty, tz); side.push(sd); arc.push(pts[o + 4] + off); cps.push(pts[o + 3]); fade.push(f);
       }
-      px = x; py = y; pz = z; pc = _hc.slice();
-      const sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
-      x += _w[0] / sp * h; y += _f[1] / sp * h; z += _w[1] / sp * h;
-      if (y < 0.02) y = 0.02;
-      s += h;
-      if (x < -8) break;
+      if (i < n - 1) {
+        const k = base + i * 2;
+        idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+      }
     }
   }
-  slGeo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-  slGeo.setAttribute("col", new THREE.Float32BufferAttribute(col, 3));
-  slGeo.setAttribute("arc", new THREE.Float32BufferAttribute(arc, 1));
-  slGeo.computeBoundingSphere();
+  ribGeo.setIndex(idx);
+  ribGeo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  ribGeo.setAttribute("tang", new THREE.Float32BufferAttribute(tang, 3));
+  ribGeo.setAttribute("side", new THREE.Float32BufferAttribute(side, 1));
+  ribGeo.setAttribute("arc", new THREE.Float32BufferAttribute(arc, 1));
+  ribGeo.setAttribute("cp", new THREE.Float32BufferAttribute(cps, 1));
+  ribGeo.setAttribute("fade", new THREE.Float32BufferAttribute(fade, 1));
+}
+
+/* ---------- Wake smoke (soft sprites shed from the tail, wheels and wing tips) ---------- */
+const SMOKE_N = isSmall ? 420 : 800;
+const smPos = new Float32Array(SMOKE_N * 3), smSize = new Float32Array(SMOKE_N), smAlpha = new Float32Array(SMOKE_N);
+const smAge = new Float32Array(SMOKE_N), smLife = new Float32Array(SMOKE_N);
+const smokeGeo = new THREE.BufferGeometry();
+smokeGeo.setAttribute("position", new THREE.BufferAttribute(smPos, 3));
+smokeGeo.setAttribute("size", new THREE.BufferAttribute(smSize, 1));
+smokeGeo.setAttribute("alpha", new THREE.BufferAttribute(smAlpha, 1));
+const smokeMat = new THREE.ShaderMaterial({
+  uniforms: { uScale: { value: 400 } },
+  vertexShader: `
+    uniform float uScale; attribute float size; attribute float alpha; varying float vA;
+    void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vA = alpha; gl_PointSize = size * uScale / -mv.z; gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `
+    varying float vA;
+    void main(){ vec2 d = gl_PointCoord - 0.5; float a = exp(-dot(d,d) * 11.0) - 0.064; if (a <= 0.0) discard;
+      gl_FragColor = vec4(vec3(0.86, 0.9, 0.95) * a * vA, 1.0); }`,
+  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+});
+const smoke = new THREE.Points(smokeGeo, smokeMat);
+smoke.frustumCulled = false; scene.add(smoke);
+
+function spawnSmoke(i) {
+  const r = Math.random();
+  let x, y, z;
+  if (r < 0.5) { x = XR + 0.05; y = 0.12 + Math.random() * 0.8; z = (Math.random() * 2 - 1) * 0.85; }         // tail / diffuser exit
+  else if (r < 0.7) { x = WING.x - 0.15; y = WING.y + (Math.random() - 0.5) * 0.08; z = (Math.random() < 0.5 ? -1 : 1) * WING.span; } // wing-tip vortices
+  else if (r < 0.9) { x = AXLE_R - 0.2 - Math.random() * 0.3; y = 0.08 + Math.random() * 0.4; z = (Math.random() < 0.5 ? -1 : 1) * (0.8 + Math.random() * 0.25); } // rear wheels
+  else { x = AXLE_F - 0.35; y = 0.1 + Math.random() * 0.35; z = (Math.random() < 0.5 ? -1 : 1) * (0.95 + Math.random() * 0.15); }   // front wheel wake
+  toWorld(x, z, _w);
+  smPos[i * 3] = _w[0]; smPos[i * 3 + 1] = y; smPos[i * 3 + 2] = _w[1];
+  smAge[i] = 0; smLife[i] = 1.1 + Math.random() * 1.6;
+}
+for (let i = 0; i < SMOKE_N; i++) { spawnSmoke(i); smAge[i] = Math.random() * smLife[i]; }
+
+function stepSmoke(dt) {
+  const vis = (S.cSpeed / 300) * 7.5;
+  const on = Math.min(1, S.cSpeed / 60);
+  for (let i = 0; i < SMOKE_N; i++) {
+    smAge[i] += dt * (0.4 + 0.6 * on);
+    if (smAge[i] > smLife[i]) spawnSmoke(i);
+    const o = i * 3;
+    const x = smPos[o], y = smPos[o + 1], z = smPos[o + 2];
+    toLocal(x, z, _l); field(_l[0], y, _l[1], S.time, _f); toWorld(_f[0], _f[2], _w);
+    const u = smAge[i] / smLife[i];
+    const spread = 0.35 + u;   // smoke slows and billows as it ages
+    smPos[o] = x + _w[0] * vis * dt * (0.55 + 0.25 * (1 - u));
+    smPos[o + 1] = Math.max(0.03, y + (_f[1] * vis * 0.8 + 0.05) * dt);
+    smPos[o + 2] = z + _w[1] * vis * dt * spread;
+    smSize[i] = 0.15 + 0.75 * u;
+    smAlpha[i] = 0.05 * Math.sin(Math.PI * Math.min(1, u * 1.2)) * on;
+  }
+  smokeGeo.attributes.position.needsUpdate = true;
+  smokeGeo.attributes.size.needsUpdate = true;
+  smokeGeo.attributes.alpha.needsUpdate = true;
 }
 
 /* ---------- Vector field ---------- */
@@ -1149,7 +1425,7 @@ function updateArrows(A) {
   const kN = (n) => (n / 1000).toFixed(1) + " kN";
   const perN = 1.5 / 7000; // metres per newton
   // Downforce on each axle: arrow points down onto the body
-  const axles = [["dfF", 1.45, A.bal], ["dfR", -1.3, 1 - A.bal]];
+  const axles = [["dfF", AXLE_F, A.bal], ["dfR", AXLE_R, 1 - A.bal]];
   for (const [k, x, share] of axles) {
     const F = A.df * share, L = 0.25 + F * perN;
     const s = bodySec(x); const topY = s.yc + s.hh + (k === "dfR" ? 0.05 : 0.02);
@@ -1240,16 +1516,24 @@ document.querySelectorAll(".mode").forEach((b) => b.addEventListener("click", ()
   const m = b.dataset.mode; S.modes[m] = !S.modes[m];
   b.setAttribute("aria-pressed", S.modes[m]);
   if (m === "streamlines" && S.modes[m]) dirty.stream = true;
+  if (m === "pressure") needPaint = true;
   if (m === "vectors" && S.modes[m]) dirty.vec = true;
   refreshVisibility();
 }));
 function refreshVisibility() {
   streaks.visible = S.modes.particles;
   streamlines.visible = S.modes.streamlines;
+  smoke.visible = S.modes.smoke;
   vectors.visible = S.modes.vectors;
-  const anyFlow = S.modes.pressure || S.modes.particles || S.modes.streamlines || S.modes.vectors;
+  const anyFlow = S.modes.pressure || S.tint || S.modes.particles || S.modes.vectors;
   $("legend").style.visibility = anyFlow ? "visible" : "hidden";
 }
+
+document.querySelectorAll("[data-tint]").forEach((b) => b.addEventListener("click", () => {
+  S.tint = +b.dataset.tint;
+  document.querySelectorAll("[data-tint]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  refreshVisibility();
+}));
 
 // Camera presets
 const VIEWS = {
@@ -1258,11 +1542,11 @@ const VIEWS = {
   rear:  { p: [-6.4, 2.4, 4.2], t: [-0.6, 0.7, 0] },
   top:   { p: [0.01, 12, 0.8], t: [-0.3, 0.5, 0] },
   under: { p: [-4.6, 0.25, 3.6], t: [-0.8, 0.35, 0] },
-  splitter: { p: [4.6, 0.9, 2.4], t: [1.9, 0.25, 0] },
-  canards: { p: [4.2, 1.1, 3.2], t: [1.9, 0.35, 0.6] },
-  louvres: { p: [3.6, 2.6, 2.6], t: [1.4, 0.7, 0.4] },
-  diffuser: { p: [-5.2, 0.4, 2.2], t: [-1.9, 0.25, 0] },
-  wing: { p: [-4.4, 2.3, 3.0], t: [-2.0, 1.15, 0] },
+  splitter: { p: [4.6, 0.8, 2.4], t: [1.9, 0.2, 0] },
+  canards: { p: [4.0, 1.0, 3.2], t: [1.9, 0.35, 0.7] },
+  louvres: { p: [3.4, 2.6, 2.8], t: [1.2, 0.65, 0.5] },
+  diffuser: { p: [-5.2, 0.35, 2.0], t: [-2.0, 0.25, 0] },
+  wing: { p: [-4.4, 2.2, 3.0], t: [-2.1, 1.0, 0] },
 };
 let tween = null;
 function goView(name) {
@@ -1294,7 +1578,20 @@ document.querySelectorAll(".feat").forEach((b) => b.addEventListener("click", ()
     if (window.matchMedia("(max-width: 880px)").matches) stageEl.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
   } else highlight = null;
 }));
+const HI_BOX = {
+  splitter: [[1.9, 0.0, 0.0], [2.5, 0.2, 1.15]],
+  canards: [[1.75, 0.12, 0.62], [2.4, 0.5, 1.2]],
+  louvres: [[0.9, 0.5, 0.4], [1.75, 0.95, 1.1]],
+  diffuser: [[-2.5, 0.0, 0.0], [-1.45, 0.45, 1.0]],
+  wing: [[-2.55, 0.82, 0.0], [-1.8, 1.4, 1.1]],
+};
 function updateHighlight(now) {
+  if (model) {
+    const b = highlight && HI_BOX[highlight.key];
+    HEATU.uHiAmt.value = b ? 0.35 + 0.35 * Math.sin((now - highlight.t0) / 180) : 0;
+    if (b) { HEATU.uHiMin.value.set(...b[0]); HEATU.uHiMax.value.set(...b[1]); }
+    return;
+  }
   for (const k in featMats) {
     const on = highlight && highlight.key === k;
     const pulse = on ? 0.35 + 0.35 * Math.sin((now - highlight.t0) / 180) : 0;
@@ -1319,8 +1616,8 @@ function updateNumbers(A) {
   $("balFill").style.width = (A.bal * 100) + "%";
   $("runTag").innerHTML = "RUN 01 · <b>" + Math.round(S.cSpeed) + " km/h</b> · yaw <b>" + S.cYaw.toFixed(1) + "°</b> · wing <b>" + Math.round(S.cWing) + "°</b><br>ρ 1.225 kg/m³ · A 1.95 m²";
   const qn = A.q;
-  $("legLo").textContent = "−" + (1.6 * qn / 1000).toFixed(1) + " kPa";
-  $("legHi").textContent = "+" + (1.0 * qn / 1000).toFixed(1) + " kPa";
+  $("legLo").textContent = "−" + (1.1 * qn / 1000).toFixed(1) + " kPa";
+  $("legHi").textContent = "+" + (0.8 * qn / 1000).toFixed(1) + " kPa";
 }
 
 const chart = $("chart"), cx = chart.getContext("2d");
@@ -1371,7 +1668,7 @@ function drawChart() {
    Loop
    ========================================================= */
 const dirty = { surface: true, stream: true, vec: true };
-let lastHeavy = 0, lastKey = "";
+let lastHeavy = 0, lastKey = "", lastCpKey = "", lastCp = 0, lastSpeedKey = -1, needPaint = true, lastPaint = 0;
 
 function resize() {
   const w = stageEl.clientWidth, h = stageEl.clientHeight;
@@ -1379,6 +1676,7 @@ function resize() {
   camera.aspect = w / h;
   camera.fov = w / h < 0.9 ? 50 : 36;
   camera.updateProjectionMatrix();
+  smokeMat.uniforms.uScale.value = h / (2 * Math.tan(camera.fov * DEG / 2));
   drawChart();
 }
 new ResizeObserver(resize).observe(stageEl);
@@ -1386,6 +1684,7 @@ resize();
 
 setYaw(0);
 refreshVisibility();
+loadModel();
 if (camera.aspect < 0.9) camera.position.sub(controls.target).multiplyScalar(1.12).add(controls.target);
 
 let prev = performance.now();
@@ -1408,20 +1707,33 @@ function frame(now) {
   const A = aero(S.cSpeed, S.cYaw, S.cWing);
   flow.load = A.CL / 1.18;
 
-  // Heavy recomputes, throttled while values are moving
+  car.userData.shadow.rotation.z = S.cYaw * DEG;
+
+  // Numbers follow every change
   const key = S.cYaw.toFixed(2) + "|" + S.cWing.toFixed(2) + "|" + Math.round(S.cSpeed);
-  if (key !== lastKey) { dirty.surface = dirty.stream = dirty.vec = true; lastKey = key; }
-  if (dirty.surface) { updateSurfaceCp(); paintSurfaces(); dirty.surface = false; updateNumbers(A); drawChart(); }
-  else if (pPrev !== S.pBlend) paintSurfaces();
-  if (now - lastHeavy > 140) {
+  if (key !== lastKey) { lastKey = key; dirty.vec = true; updateNumbers(A); drawChart(); }
+  // Surface pressure depends on yaw + wing; its colours also on speed. Throttled while sliding.
+  const cpKey = S.cYaw.toFixed(2) + "|" + S.cWing.toFixed(2);
+  if (cpKey !== lastCpKey && now - lastCp > 120) {
+    lastCpKey = cpKey; lastCp = now; updateSurfaceCp(); needPaint = true; dirty.stream = true;
+  }
+  const spKey = Math.round(S.cSpeed / 2);
+  if (spKey !== lastSpeedKey) { lastSpeedKey = spKey; needPaint = true; }
+  if (needPaint && now - lastPaint > 80) { paintSurfaces(); needPaint = false; lastPaint = now; }
+  else if (pPrev !== S.pBlend) { if (model) setHeatBlend(S.pBlend); else paintSurfaces(); }
+  if (now - lastHeavy > 220) {
     if (dirty.stream && S.modes.streamlines) { buildStreamlines(); dirty.stream = false; lastHeavy = now; }
     if (dirty.vec && S.modes.vectors) { buildVectors(); dirty.vec = false; lastHeavy = now; }
   }
+  if (model) { car.updateMatrixWorld(); HEATU.uCarInv.value.copy(car.matrixWorld).invert(); }
 
   if (S.modes.particles) stepParticles(dt);
-  slMat.uniforms.uTime.value = S.time;
-  slMat.uniforms.uSpeed.value = 0.15 + 1.1 * (S.cSpeed / 300);
-  slMat.uniforms.uAmp.value = 0.35 + 0.65 * Math.min(1, S.cSpeed / 80);
+  if (S.modes.smoke) stepSmoke(dt);
+  RIB_U.uTime.value = S.time;
+  RIB_U.uSpeed.value = 0.1 + 0.9 * (S.cSpeed / 300);
+  RIB_U.uAmp.value = 0.3 + 0.7 * Math.min(1, S.cSpeed / 80);
+  RIB_U.uTint.value += (S.tint - RIB_U.uTint.value) * (reduceMotion ? 1 : 1 - Math.exp(-dt * 5));
+  RIB_U.uSpeedScale.value = S.cSpeed * S.cSpeed / (300 * 300);
 
   // Rolling road + wheels
   const vis = (S.cSpeed / 300) * 7.5;
