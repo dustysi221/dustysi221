@@ -116,6 +116,7 @@
   .tag { font-size: 9px; font-weight: 800; letter-spacing: .08em; padding: 1px 4px; border-radius: 2px; border: 1px solid currentColor; vertical-align: 1px; }
   .tag.pit { color: #111; background: var(--watch); border-color: var(--watch); }
   .tag.fl { color: var(--purple); }
+  .tag.caution { color: var(--flag-yellow); }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
   .seg button { font: inherit; font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); background: transparent; border: 0; padding: 3px 8px; cursor: pointer; }
   .seg button[aria-pressed="true"] { background: var(--panel-2); color: var(--text); }
@@ -189,6 +190,11 @@
   }
   .flag-banner.show { display: flex; }
   .flag-banner.green { background: var(--flag-green); }
+  .flag-banner.chequered {
+    color: #111; background:
+      linear-gradient(90deg, #f2f2f2 0 70%, transparent 92%),
+      repeating-conic-gradient(#111 0 25%, #f2f2f2 0 50%) 0 0 / 12px 12px;
+  }
   .flag-banner.sc { animation: flagpulse 1.2s ease-in-out infinite; }
   .flag-banner > span { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
   .flag-banner small { font-size: 10px; font-weight: 700; letter-spacing: .08em; opacity: .7; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -415,6 +421,10 @@
         lap.vmax = Math.max(lap.vmax, v.speedKph || 0);
       }
       if (v.inPits) lap.pitted = true;
+      // Laps run partly under a full-course yellow or safety car get tagged (SC wins over FCY)
+      const fs = d.flags && d.flags.state;
+      if (fs === 'safetyCar') lap.caution = 'SC';
+      else if ((fs === 'fcy' || fs === 'fullCourse') && lap.caution !== 'SC') lap.caution = 'FCY';
       // Track outline from our own positions, binned along the lap
       if (lapLength && Number.isFinite(v.posX)) trackBins.set(Math.round((dist / lapLength) * MAP_BINS) % MAP_BINS, [v.posX, v.posZ]);
       const sec = v.sectors ? v.sectors.current : null;
@@ -432,6 +442,7 @@
     lap.samples = [];
     lap.startFuel = v.fuelL;
     lap.pitted = !!v.inPits;
+    lap.caution = null;
     lap.vmax = 0;
     lap.partial = joinedMidLap;
   }
@@ -445,6 +456,7 @@
       lap: lap.number,
       time: lastSample.t, // provisional: our own timing until the game's official time arrives
       valid: !lap.partial && !lap.pitted && covered,
+      caution: lap.caution,
       sectors: null,
       vmax: lap.vmax,
       fuel: lap.startFuel != null && v.fuelL != null && lap.startFuel > v.fuelL ? lap.startFuel - v.fuelL : null,
@@ -514,6 +526,7 @@
       renderHeader();
       renderInputs();
       renderTires();
+      renderSectors();
       drawTraces();
       drawMap();
       renderFlags();
@@ -526,7 +539,9 @@
     const { session: s, vehicle: v } = snap;
     $('trackName').textContent = s.trackName || '—';
     const PHASE_TEXT = { fullCourseYellow: 'full course yellow', gridwalk: 'grid walk' };
-    $('sessionLine').textContent = [s.type, PHASE_TEXT[s.phase] || s.phase].filter(Boolean).join(' · ');
+    // The game reports FCY and safety car as the same phase; the flags tell them apart
+    const phase = s.phase === 'fullCourseYellow' && snap.flags && snap.flags.state === 'safetyCar' ? 'safety car' : PHASE_TEXT[s.phase] || s.phase;
+    $('sessionLine').textContent = [s.type, phase].filter(Boolean).join(' · ');
     const left = s.endSec > 0 && s.endSec < 1e6 ? s.endSec - s.elapsedSec : null;
     $('timeLeft').textContent = left != null ? hms(left) : s.maxLaps ? `${Math.max(0, s.maxLaps - (v.lapsCompleted || 0))} laps` : '—';
     $('lap').textContent = v.lap ?? '—';
@@ -559,7 +574,8 @@
     $('rpmBar').style.width = `${Math.min(100, ((v.rpm || 0) / maxRpm) * 100)}%`;
 
     $('fuelL').textContent = `${fmt(v.fuelL, 1)} L`;
-    const fuelLaps = history.filter((l) => l.valid && l.fuel).slice(-3);
+    // Green-flag laps only: fuel use under FCY / safety car isn't representative
+    const fuelLaps = history.filter((l) => l.valid && l.fuel && !l.caution).slice(-3);
     const perLap = fuelLaps.length ? fuelLaps.reduce((a, l) => a + l.fuel, 0) / fuelLaps.length : null;
     $('fuelPerLap').textContent = perLap ? `${perLap.toFixed(2)} L` : '—';
     $('fuelLaps').textContent = perLap ? fmt(v.fuelL / perLap, 1) : '—';
@@ -1177,9 +1193,12 @@
     pitsOpen: 'Pits open', lastLap: 'In this lap', resume: 'Green flag soon', raceHalt: 'Race halted',
   };
 
+  // Race clock in seconds (falls back to wall time), so banners last the same at any sim speed
+  const raceClock = () => (snap && Number.isFinite(snap.session.elapsedSec) ? snap.session.elapsedSec : Date.now() / 1000);
+
   function trackFlagChange(flags) {
     const now = flags ? flags.state : null;
-    if (now === 'green' && lastFlagState && lastFlagState !== 'green' && lastFlagState !== 'other') greenUntil = Date.now() + 8000;
+    if (now === 'green' && lastFlagState && lastFlagState !== 'green' && lastFlagState !== 'other') greenUntil = raceClock() + 8;
     lastFlagState = now;
   }
 
@@ -1187,7 +1206,12 @@
     const flags = snap ? snap.flags : null;
     const banner = $('flagBanner');
     let title = '', sub = '', kind = 'yellow';
-    if (flags) {
+    if (snap && snap.session.phase === 'over') {
+      title = 'CHEQUERED FLAG';
+      const where = `P${snap.vehicle.position ?? '—'}${snap.vehicle.classPosition && snap.vehicle.classPosition !== snap.vehicle.position ? ` · P${snap.vehicle.classPosition} in class` : ''}`;
+      sub = snap.session.type === 'race' ? `Race finished · ${where}` : 'Session over';
+      kind = 'chequered';
+    } else if (flags) {
       const status = YELLOW_TEXT[flags.yellowState] || '';
       if (flags.state === 'safetyCar') {
         title = 'SAFETY CAR';
@@ -1203,7 +1227,7 @@
         title = 'YELLOW · ' + flags.sectorYellow.map((on, i) => (on ? `S${i + 1}` : null)).filter(Boolean).join(' ');
         const names = standings.filter((c) => flags.slowCars.includes(c.id) && !c.you).map((c) => c.car);
         sub = names.length ? `Slow car: ${names.slice(0, 2).join(', ')}` : 'No overtaking in the sector';
-      } else if (flags.state === 'green' && Date.now() < greenUntil) {
+      } else if (flags.state === 'green' && raceClock() < greenUntil) {
         title = 'GREEN FLAG';
         sub = 'Track clear';
         kind = 'green';
@@ -1362,7 +1386,7 @@
         return `<span class="${l.valid && pb[i] != null && v <= pb[i] + 0.0005 ? 'pbc' : ''}">${v.toFixed(3)}</span>`;
       };
       return `<tr class="${l === bestLap ? 'best' : ''}${l.valid ? '' : ' invalid'}" title="${l.valid ? '' : 'Not a full clean lap (pit visit or joined mid-lap)'}">
-        <td class="num">${l.lap}${l.valid ? '' : ' *'}</td>
+        <td class="num">${l.lap}${l.valid ? '' : ' *'}${l.caution ? ` <span class="tag caution" title="Run partly under ${l.caution === 'SC' ? 'the safety car' : 'a full course yellow'}">${l.caution}</span>` : ''}</td>
         <td class="r num">${lapTime(l.time)}</td>
         <td class="r num">${best && l.valid ? signed(l.time - best) : '—'}</td>
         <td class="r num">${sec(0)}</td><td class="r num">${sec(1)}</td><td class="r num">${sec(2)}</td>

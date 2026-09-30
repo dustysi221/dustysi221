@@ -122,6 +122,7 @@
     const i = ((Math.floor(d / DS) % N) + N) % N;
     return outline[i];
   };
+  const nearest = (arr, d) => arr[Math.round((((d % LAP_M) + LAP_M) % LAP_M) / DS) % N];
   const at = (arr, d) => {
     const f = ((d % LAP_M) + LAP_M) % LAP_M / DS;
     const i = Math.floor(f), j = (i + 1) % N, t = f - i;
@@ -157,7 +158,6 @@
     fuel: 88,
     tires: Object.fromEntries(['FL', 'FR', 'RL', 'RR'].map((k) => [k, { mid: 45, carcass: 40, brake: 120, wear: 0 }])),
     rc: { kind: 'green', until: 0, stopped: null, sectors: [false, false, false] },
-    greenQueued: false,
   };
   const player = state.cars.find((c) => c.id === PLAYER.id);
 
@@ -175,35 +175,50 @@
     rc.stopped = null;
     rc.started = state.t;
     if (kind === 'yellow') {
-      // the last car on track stops in the sector it's in
-      const victim = [...state.cars].filter((c) => c !== player).sort((a, b) => a.D - b.D)[0];
+      // one of the three rearmost cars (taking turns) stops in the sector it's in
+      state.yellows = (state.yellows || 0) + 1;
+      const victim = [...state.cars].filter((c) => c !== player).sort((a, b) => a.D - b.D)[state.yellows % 3];
       rc.stopped = victim.id;
       const d = ((victim.D % LAP_M) + LAP_M) % LAP_M;
       rc.sectors[d < SPLITS[0] ? 0 : d < SPLITS[1] ? 1 : 2] = true;
     }
     if (kind === 'sc') rc.scD = leader().D + 120;
   }
+  const allFinished = () => state.cars.every((c) => c.finished);
   const leader = () => state.cars.reduce((a, b) => (b.D > a.D ? b : a));
   const limitKph = () => (state.rc.kind === 'fcy' ? 80 : state.rc.kind === 'sc' ? 120 : Infinity);
 
   function step(dt) {
     state.t += dt;
     const cycle = state.t % 900;
-    for (const s of SCRIPT) if (cycle >= s.at && cycle - dt < s.at && state.rc.kind === 'green') callRaceControl(s.kind, s.dur);
+    for (const s of SCRIPT) if (cycle >= s.at && cycle - dt < s.at && state.rc.kind === 'green' && state.t < RACE_SEC - 120) callRaceControl(s.kind, s.dur);
     if (state.rc.kind !== 'green' && state.t >= state.rc.until) { state.rc.kind = 'green'; state.rc.stopped = null; state.rc.sectors = [false, false, false]; }
 
     const cap = limitKph() / 3.6;
-    if (state.rc.kind === 'sc') state.rc.scD += Math.min(cap, at(baseProfile.speed, state.rc.scD)) * dt;
+    const sc = state.rc.kind === 'sc';
+    if (sc) state.rc.scD += Math.min(cap, at(baseProfile.speed, state.rc.scD)) * dt;
+    // Order on the road for the safety car queue (cars behind close up, nobody passes)
+    const queue = sc ? [...state.cars].sort((a, b) => b.D - a.D) : null;
     for (const c of state.cars) {
+      if (c.finished) { c.v = 0; continue; }
       const lapNo = Math.max(0, Math.floor(c.D / LAP_M));
       const prof = c === player ? playerProfile(lapNo) : baseProfile;
       let v = at(prof.speed, c.D) / (c === player ? 1 : c.pace);
       if (c.D < 0) v = Math.min(v, 45); // rolling off the grid
-      v = Math.min(v, cap);
+      let limit = cap;
+      let maxD = Infinity;
+      if (sc) {
+        const i = queue.indexOf(c);
+        const ahead = i === 0 ? null : queue[i - 1];
+        const target = ahead ? ahead.D - 25 : state.rc.scD - 60; // 25 m car spacing, 60 m to the safety car
+        if (target - c.D > 15 && target - c.D < 1500) limit = 165 / 3.6; // close the gap to the car ahead (lapped cars far behind just hold the limit)
+        maxD = target;
+      }
+      v = Math.min(v, limit);
       if (state.rc.stopped === c.id) v = 0;
-      c.v = v;
       const before = c.D;
-      c.D += v * dt;
+      c.D = Math.max(before, Math.min(before + v * dt, maxD));
+      c.v = (c.D - before) / dt;
       // sector and lap timing
       const lapBefore = Math.floor(before / LAP_M), lapAfter = Math.floor(c.D / LAP_M);
       const inLapBefore = before - lapBefore * LAP_M, inLap = c.D - lapAfter * LAP_M;
@@ -223,6 +238,16 @@
         c.laps = Math.max(0, lapAfter);
         c.lapStart = lineT;
         c.secT = [];
+        // Time is up: the leader takes the chequered flag, then everyone as they cross the line
+        if (state.t >= RACE_SEC && lapBefore >= 0 && (state.chequered || c === leader())) {
+          state.chequered = true;
+          c.finished = true;
+          c.finishT = lineT;
+          c.v = 0;
+          // Park on the line in finishing order, so the classification can't change after the flag
+          state.finishers = (state.finishers || 0) + 1;
+          c.D = lapAfter * LAP_M + 1 - state.finishers * 0.01;
+        }
         if (c === player) state.fuel = Math.max(2, state.fuel - 1.62);
       }
     }
@@ -236,8 +261,8 @@
     const kph = c.v * 3.6;
     // Held below the lap's natural speed by race control (FCY / SC limit) or stopped
     const limited = state.rc.stopped === c.id || kph >= limitKph() - 0.5;
-    const thr = limited ? (state.rc.stopped === c.id ? 0 : 0.22) : at(prof.thr, c.D);
-    const brk = limited ? 0 : at(prof.brk, c.D);
+    const thr = limited ? (state.rc.stopped === c.id ? 0 : 0.22) : nearest(prof.thr, c.D);
+    const brk = limited ? 0 : nearest(prof.brk, c.D);
     let gear = 1;
     while (gear < 7 && kph > GEAR_TOP[gear] * 0.965) gear++;
     const rpm = Math.max(3200, Math.min(8650, (kph / GEAR_TOP[gear]) * 8650));
@@ -266,7 +291,7 @@
 
   function snapshot() {
     const c = player;
-    const x = last || inputs();
+    const x = c.finished ? { kph: 0, thr: 0, brk: 0, gear: 1, rpm: 3200, steer: 0, gLat: 0, gLong: 0 } : last || inputs();
     const d = ((c.D % LAP_M) + LAP_M) % LAP_M;
     const [px, pz] = posAt(c.D);
     const order = [...state.cars].sort((a, b) => b.D - a.D);
@@ -299,7 +324,7 @@
       session: {
         trackName: 'Demo Circuit · 5.4 km',
         type: 'race',
-        phase: rc.kind === 'fcy' || rc.kind === 'sc' ? 'fullCourseYellow' : 'green',
+        phase: player.finished ? 'over' : rc.kind === 'fcy' || rc.kind === 'sc' ? 'fullCourseYellow' : 'green',
         elapsedSec: r(state.t, 1),
         endSec: RACE_SEC,
         maxLaps: null,
@@ -318,7 +343,7 @@
         classPosition: order.filter((o) => o.cls === c.cls).indexOf(c) + 1,
         lastLapSec: c.lastLap ? r(c.lastLap, 3) : null,
         bestLapSec: c.bestLap ? r(c.bestLap, 3) : null,
-        lapDistanceM: r(Math.max(0, c.D < 0 ? 0 : d), 0),
+        lapDistanceM: c.D < 0 ? 0 : Math.floor(d),
         scoringLapBehind: false,
         currentLapSec: r(state.t - c.lapStart, 3),
         inPits: false,
@@ -347,7 +372,7 @@
         state: flagsState,
         sectorYellow: rc.sectors,
         yellowState,
-        safetyCar: rc.kind === 'sc' ? { lapDistM: r(((rc.scD % LAP_M) + LAP_M) % LAP_M, 0), speedKph: 120 } : null,
+        safetyCar: rc.kind === 'sc' ? { lapDistM: Math.floor(((rc.scD % LAP_M) + LAP_M) % LAP_M), speedKph: 120 } : null,
         yellowLaps: rc.kind === 'fcy' || rc.kind === 'sc' ? 2 : null,
         rulesAvailable: true,
         slowCars: rc.stopped ? [rc.stopped] : [],
@@ -356,6 +381,14 @@
       source: 'mock',
       timestamp: Date.now(),
     };
+  }
+
+  /** Seconds behind the leader; after the flag it's finishing time (or time since the leader finished plus the run to the line). */
+  function gapSec(c, lead, behindM, lapsDown) {
+    if (!lead.finished || lapsDown > 0) return behindM / Math.max(20, lead.v || 50);
+    if (c.finished) return c.finishT - lead.finishT;
+    const toLine = (Math.floor(c.D / LAP_M) + 1) * LAP_M - c.D;
+    return state.t - lead.finishT + toLine / Math.max(20, c.v);
   }
 
   function standings() {
@@ -375,13 +408,14 @@
         laps: c.laps,
         lastLapSec: c.lastLap ? r(c.lastLap, 3) : null,
         bestLapSec: c.bestLap ? r(c.bestLap, 3) : null,
-        gapToLeaderSec: i === 0 ? 0 : r(behindM / Math.max(20, lead.v || 50), 3),
+        // After the flag, the gap is the difference in finishing time
+        gapToLeaderSec: i === 0 ? 0 : r(gapSec(c, lead, behindM, lapsDown), 3),
         lapsDown,
         inPits: undefined,
         pitStops: 0,
         x: r(x, 1),
         z: r(z, 1),
-        lapDistM: r(((c.D % LAP_M) + LAP_M) % LAP_M, 0),
+        lapDistM: Math.floor(((c.D % LAP_M) + LAP_M) % LAP_M),
         speedKph: r(c.v * 3.6, 0),
       };
     });
@@ -418,13 +452,22 @@
     close() {}
   }
   window.WebSocket = DemoSocket;
+  // Test hook: jump the race forward (sends every 10th frame on the way)
+  window.__lmuDemo = {
+    skipTo(sec) {
+      let n = 0;
+      while (state.t < sec && !allFinished()) { step(DT); if (++n % 10 === 0) send('telemetry', snapshot()); }
+      send('standings', standings());
+    },
+  };
 
   let timer = null, standingsTimer = null;
   function start() {
     if (timer) return;
     timer = setInterval(() => {
-      if (state.t >= RACE_SEC) return;
-      for (let i = 0; i < speed; i++) { step(DT); send('telemetry', snapshot()); }
+      // After the flag, keep running until every car has finished; you stay parked past the line
+      if (allFinished()) { send('telemetry', snapshot()); return; }
+      for (let i = 0; i < speed && !allFinished(); i++) { step(DT); send('telemetry', snapshot()); }
     }, 100);
     standingsTimer = setInterval(() => send('standings', standings()), 1000);
   }
@@ -460,7 +503,9 @@
       <button type="button" id="demoYellow">Yellow</button>
       <button type="button" id="demoFcy">FCY</button>
       <button type="button" id="demoSc">SC</button>
-      <button type="button" id="demoGreen">Green</button>`;
+      <button type="button" id="demoGreen">Green</button>
+      <span class="sep"></span>
+      <button type="button" id="demoRestart">Restart</button>`;
     links.appendChild(box);
     for (const [id, x] of [['demoX1', 1], ['demoX4', 4], ['demoX10', 10]]) {
       document.getElementById(id).addEventListener('click', () => {
@@ -472,6 +517,7 @@
     document.getElementById('demoFcy').addEventListener('click', () => callRaceControl('fcy'));
     document.getElementById('demoSc').addEventListener('click', () => callRaceControl('sc'));
     document.getElementById('demoGreen').addEventListener('click', () => { state.rc.until = state.t; });
+    document.getElementById('demoRestart').addEventListener('click', () => location.reload());
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', controls);
   else controls();
