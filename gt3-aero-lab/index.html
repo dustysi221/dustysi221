@@ -997,6 +997,15 @@ function loadModel() {
     setTimeout(() => (loadingEl.style.opacity = 0), 4000);
   };
   const loader = new THREE.GLTFLoader();
+  // GLTFLoader decodes embedded textures with fetch(blob:) when createImageBitmap exists, and
+  // strict hosts (like the artifact viewer) block that. Hide it while the parser is created so
+  // textures load through plain <img> elements instead.
+  const parse0 = loader.parse.bind(loader);
+  loader.parse = (...args) => {
+    const cib = window.createImageBitmap;
+    window.createImageBitmap = undefined;
+    try { return parse0(...args); } finally { window.createImageBitmap = cib; }
+  };
   // Hosts that can't serve .glb files can ship the model as a script that sets CAR_GLB_B64
   if (window.CAR_GLB_B64) {
     try {
