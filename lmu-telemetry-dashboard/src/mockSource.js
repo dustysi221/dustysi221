@@ -1,6 +1,10 @@
 'use strict';
 
 /**
+ * Test fixture: a simple, fully predictable simulated race used by the automated
+ * tests (fixed lap times, fuel use and pit lap, so strategy numbers can be
+ * checked exactly). The server's simulator is src/raceSimSource.js.
+ *
  * Simulated LMU race for development without the game (and on non-Windows
  * machines). It writes real rF2 binary buffers with koffi.encode, so the
  * snapshots go through exactly the same parser as live shared memory.

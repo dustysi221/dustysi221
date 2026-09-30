@@ -39,7 +39,9 @@ VOICE BUTTON (WHEEL)
 
 TELEMETRY SOURCE
   Game (LMU) / Simulator ... switches instantly (clears the session history)
-  Simulator speed ........... real time up to 20x faster
+  Simulator speed ........... real time up to 20x faster (changes live)
+  Session (simulator) ....... Practice / Qualifying / Race
+  Race control (simulator) .. Yellow, FCY, Safety car, Green
   NOT remembered: next time the server starts in the mode of the file you
   double-click (Start Dashboard = game, Start Simulator = simulator,
   Control Panel = game).

@@ -87,6 +87,9 @@
   .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
   .segmented button { border: 0; border-radius: 0; padding: 10px 18px; background: var(--panel-2); }
   .segmented button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .sim-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  .sim-label { min-width: 100px; color: var(--muted); }
+  .sim-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
 
   .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
   .banner { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--watch); color: var(--watch); background: color-mix(in srgb, var(--watch) 8%, transparent); display: none; }
@@ -217,8 +220,29 @@
           <select id="mockSpeed"></select>
         </label>
       </div>
+      <div id="simControls">
+        <div class="sim-row">
+          <span class="sim-label">Session</span>
+          <div class="segmented" role="group" aria-label="Simulator session">
+            <button id="simPractice" data-session="practice" aria-pressed="false">Practice</button>
+            <button id="simQualifying" data-session="qualifying" aria-pressed="false">Qualifying</button>
+            <button id="simRace" data-session="race" aria-pressed="false">Race</button>
+          </div>
+        </div>
+        <div class="sim-row">
+          <span class="sim-label">Race control</span>
+          <div class="sim-buttons" role="group" aria-label="Race control">
+            <button id="rcYellow" data-rc="yellow">Yellow</button>
+            <button id="rcFcy" data-rc="fcy">FCY</button>
+            <button id="rcSc" data-rc="sc">Safety car</button>
+            <button id="rcGreen" data-rc="green">Green</button>
+          </div>
+        </div>
+      </div>
       <div class="note">
-        Switches instantly and clears the session history. Next time, the server starts in the mode of the file you
+        Session: practice (60 min, stints from the garage), qualifying (15 min, run qualifying first and the race
+        grid follows it) or race (rolling start). FCY and safety car are race only.
+        Switching source clears the session history. Next time, the server starts in the mode of the file you
         launch (Start Dashboard = game, Start Simulator = simulator).
       </div>
     </section>
@@ -324,6 +348,9 @@
     $('srcSim').setAttribute('aria-pressed', t.source === 'simulator');
     $('srcGame').title = t.gameAvailable ? '' : 'Only on the Windows PC running LMU';
     fillSelect('mockSpeed', s.options.mockSpeeds, t.mockSpeed, (v) => (v === 1 ? 'Real time' : `${v}× faster`));
+    $('simControls').hidden = t.source !== 'simulator';
+    for (const b of document.querySelectorAll('[data-session]')) b.setAttribute('aria-pressed', String(b.dataset.session === t.simSession));
+    $('rcFcy').hidden = $('rcSc').hidden = t.simSession !== 'race';
   }
 
   let learning = false;
@@ -443,6 +470,14 @@
   $('srcGame').addEventListener('click', () => post('/api/control', { source: 'game' }, 'Switched to the game'));
   $('srcSim').addEventListener('click', () => post('/api/control', { source: 'simulator' }, 'Switched to the simulator'));
   $('mockSpeed').addEventListener('change', (e) => post('/api/control', { mockSpeed: Number(e.target.value) }, 'Simulator speed changed'));
+  const SESSION_NAMES = { practice: 'Practice', qualifying: 'Qualifying', race: 'Race' };
+  for (const b of document.querySelectorAll('[data-session]')) {
+    b.addEventListener('click', () => post('/api/control', { simSession: b.dataset.session }, `${SESSION_NAMES[b.dataset.session]} started`));
+  }
+  const RC_NAMES = { yellow: 'Yellow flag called', fcy: 'Full course yellow called', sc: 'Safety car called', green: 'Back to green' };
+  for (const b of document.querySelectorAll('[data-rc]')) {
+    b.addEventListener('click', () => post('/api/control', { raceControl: b.dataset.rc }, RC_NAMES[b.dataset.rc]));
+  }
 
   // Server
   $('stopServer').addEventListener('click', async () => {

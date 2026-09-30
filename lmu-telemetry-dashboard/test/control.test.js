@@ -185,3 +185,25 @@ test('engineer view is served and gets the standings every second', async (t) =>
   assert.equal(standings[0].pos, 1);
   assert.ok(Number.isFinite(me.x) && Number.isFinite(me.z));
 });
+
+test('control panel: simulator session and race control', async (t) => {
+  const srv = await startServer('');
+  t.after(srv.stop);
+  const initial = await (await fetch(srv.base + '/api/control')).json();
+  assert.equal(initial.telemetry.simSession, 'race');
+  assert.deepEqual(initial.options.simSessions, ['practice', 'qualifying', 'race']);
+
+  const quali = await srv.post('/api/control', { simSession: 'qualifying' });
+  assert.equal(quali.status, 200);
+  assert.equal(quali.body.telemetry.simSession, 'qualifying');
+
+  const yellow = await srv.post('/api/control', { raceControl: 'yellow' });
+  assert.equal(yellow.status, 200);
+  const bogus = await srv.post('/api/control', { simSession: 'endurance', raceControl: 'meteor' });
+  assert.equal(bogus.body.telemetry.simSession, 'qualifying'); // unknown values are ignored
+
+  // speed changes keep the same session running
+  const faster = await srv.post('/api/control', { mockSpeed: 10 });
+  assert.equal(faster.body.telemetry.simSession, 'qualifying');
+  assert.equal(faster.body.telemetry.mockSpeed, 10);
+});

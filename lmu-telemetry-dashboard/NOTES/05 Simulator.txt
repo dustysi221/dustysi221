@@ -1,8 +1,13 @@
 05 SIMULATOR (TESTING WITHOUT THE GAME)
 =======================================
-A fake car that drives a 90-minute race with 5 AI rivals and one pit stop
-(around lap 30). Everything on the dashboard works with it, including the AI
-and voice. The AI still costs money in the simulator.
+A full simulated session on a 5.4 km circuit with 7 rivals in two classes
+(Hypercar and LMGT3): real braking and acceleration, apex speeds, tire
+temperatures and wear, fuel, pit lane and garages, flags, safety car.
+Everything works with it: driver dashboard, engineer view, AI engineers and
+voice. The AI still costs money in the simulator.
+
+It is the same simulator as the online demo and  /engineer?demo , so what
+you see there is what the server simulator does.
 
 START IT
 --------
@@ -12,23 +17,39 @@ Double-click "Start Simulator.bat".
 The black window says "Telemetry source: mock". The dashboard pill says
 "Live - simulator".
 
+SESSIONS (in the Control Panel, Telemetry source card)
+--------
+  Practice ...... 60 min. Cars leave the garage in stints: out lap, 4-7
+                  timed laps, in lap, time in the garage. Ranked by best lap.
+  Qualifying .... 15 min. Out lap, two push laps, cool-down lap, back to the
+                  garage. Ranked by best lap.
+  Race .......... 90 min. Rolling start: 10 s on the grid, formation lap
+                  behind the pace car, green flag at the line. Chequered
+                  flag and a cool-down lap at the end.
+                  Run Qualifying first and the race grid follows its result.
+The server starts in the race. To start in another session, add to .env:
+  MOCK_SESSION=practice      (or qualifying)
+
+RACE CONTROL (Control Panel)
+------------
+  Yellow ....... a car stops, its sector goes yellow
+  FCY .......... full course yellow, 80 km/h (race only)
+  Safety car ... cars queue behind it at 120 km/h (race only)
+  Green ........ ends the current one
+They also happen by themselves every 15 minutes in the race.
+
 MAKE IT FASTER
 --------------
-Laps normally take 100 seconds. To make it 10x faster:
-  1. Close the black window.
-  2. In PowerShell in the project folder:   Add-Content .env "MOCK_SPEED=10"
-  3. Start the simulator again. The window says "(x10 speed)".
-REMOVE that line again before racing (notepad .env, delete it, Save).
-It only affects the simulator, but it's easy to forget.
-
-Faster = more strategy calls per minute = more cost.
+In the Control Panel: Simulator speed (real time up to 20x). It changes
+straight away and the session keeps going.
+Faster = more strategy calls per minute = more AI cost.
 
 WHAT TO CHECK
 -------------
-- Speed, gear, RPM, tires all moving.
-- Fuel per lap about 2.9 L after two laps.
-- Strategist mentions a stop around lap 29-30, fuel only.
-- Voice: hold V, ask "How much fuel am I using?" -> about 2.9 liters a lap.
+- Speed, gear, RPM, pedals and tires all moving like a real lap.
+- Fuel per lap about 1.6 L after two green laps.
+- Engineer view: traces, sectors, laps, flags on the map.
+- Voice: hold your button, ask "How much fuel am I using?".
 
 STOP IT
 -------

@@ -319,3 +319,30 @@ test('flags: only sector flag value 1 is a yellow, and cars in the garage are no
   assert.deepEqual(flags.rawSectorFlags, [11, 11, 11]);
   assert.deepEqual(flags.slowCars, []);
 });
+
+test('server simulator: the parser reads back exactly what the race simulator produced', () => {
+  const { RaceSimSource } = require('../src/raceSimSource');
+  for (const session of ['race', 'practice', 'qualifying']) {
+    const src = new RaceSimSource({ session });
+    for (let i = 0; i < 3000; i++) {
+      src.sim.step(0.1);
+      if (i % 50) continue;
+      const parsed = parseSnapshot(src.encode());
+      const sim = src.sim.snapshot();
+      assert.equal(parsed.session.type, sim.session.type);
+      assert.equal(parsed.session.phase, sim.session.phase);
+      assert.equal(parsed.vehicle.lap, sim.vehicle.lap);
+      assert.equal(parsed.vehicle.position, sim.vehicle.position);
+      assert.ok(Math.abs(parsed.vehicle.speedKph - sim.vehicle.speedKph) < 0.2);
+      assert.equal(parsed.vehicle.inPits, sim.vehicle.inPits);
+      assert.equal(parsed.flags.state, sim.flags.state);
+      assert.ok(Math.abs(parsed.tires.FL.temps.innerC - sim.tires.FL.temps.innerC) < 0.15, 'inner/outer edges not swapped');
+      assert.deepEqual(parsed.field.sort((a, b) => a.position - b.position).map((c) => c.id), src.sim.standings().map((c) => c.id));
+    }
+  }
+  // the race starts on the grid, then a formation lap, then green
+  const race = new RaceSimSource({ session: 'race' });
+  const phases = new Set();
+  for (let i = 0; i < 2500; i++) { race.sim.step(0.1); phases.add(parseSnapshot(race.encode()).session.phase); }
+  assert.deepEqual([...phases], ['gridwalk', 'formation', 'green']);
+});

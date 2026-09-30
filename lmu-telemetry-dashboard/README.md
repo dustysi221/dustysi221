@@ -221,13 +221,13 @@ control. `node scripts/build-demo.js` writes the same thing as one standalone fi
 
 ### Try it without the game
 
-The simulator runs a 90-minute race with AI rivals and a pit stop, on any OS:
+The simulator (the same one as the engineer view demo) runs practice, qualifying or a 90-minute race with a rolling start, pit lane, flags and safety car, on any OS:
 
 ```powershell
 npm run mock
 ```
 
-Add `MOCK_SPEED=10` to `.env` to run it 10× faster. Claude calls cost the same
+Pick the session, speed and race control (yellow, FCY, safety car) in the Control Panel, or set `MOCK_SESSION` and `MOCK_SPEED=10` in `.env`. Claude calls cost the same
 in the simulator as in the game.
 
 ### View it on a tablet or phone

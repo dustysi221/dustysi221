@@ -41,6 +41,7 @@ const config = {
   port: intEnv('PORT', 3000),
   source: process.argv.includes('--mock') ? 'mock' : (process.env.TELEMETRY_SOURCE || 'auto').toLowerCase(),
   mockSpeed: Number(process.env.MOCK_SPEED) || 1,
+  mockSession: ['practice', 'qualifying', 'race'].includes(process.env.MOCK_SESSION) ? process.env.MOCK_SESSION : 'race',
   broadcastHz: intEnv('BROADCAST_HZ', 10),
   tireSampleMs: intEnv('TIRE_SAMPLE_MS', 1000),
   analysisIntervalMs: intEnv('ANALYSIS_INTERVAL_MS', 5000),
@@ -86,8 +87,9 @@ function createSource() {
   // Throws on non-Windows when the game source is requested
   const useMock = config.source === 'mock' || (config.source === 'auto' && process.platform !== 'win32');
   if (useMock) {
-    const { MockSource } = require('./src/mockSource');
-    return { kind: 'mock', reader: new MockSource({ speedMultiplier: config.mockSpeed }) };
+    // The same race simulator as the browser demo, written out as rF2 shared-memory buffers
+    const { RaceSimSource } = require('./src/raceSimSource');
+    return { kind: 'mock', reader: new RaceSimSource({ speedMultiplier: config.mockSpeed, session: config.mockSession }) };
   }
   const { SharedMemoryReader } = require('./src/sharedMemory');
   return { kind: 'rf2', reader: new SharedMemoryReader() };
@@ -431,6 +433,7 @@ function controlState() {
     telemetry: {
       source: source.kind === 'mock' ? 'simulator' : 'game',
       mockSpeed: config.mockSpeed,
+      simSession: source.kind === 'mock' ? source.reader.session : null,
       connected: state.connected,
       live: state.live,
       message: state.message,
@@ -438,7 +441,7 @@ function controlState() {
     },
     dashboards: wss ? wss.clients.size : 0,
     wheel: wheel.state(),
-    options: { models: MODELS, efforts: EFFORTS, tireIntervalsSec: [5, 10, 15, 30, 60], mockSpeeds: [1, 5, 10, 20] },
+    options: { models: MODELS, efforts: EFFORTS, tireIntervalsSec: [5, 10, 15, 30, 60], mockSpeeds: [1, 5, 10, 20], simSessions: ['practice', 'qualifying', 'race'], raceControl: ['yellow', 'fcy', 'sc', 'green'] },
   };
 }
 
@@ -463,6 +466,14 @@ function switchSource(kind, mockSpeed) {
     throw new Error(`Can't switch to the game here: ${err.message}`);
   }
   previous.reader.close();
+  clearSessionState();
+  log.info(`[control] telemetry source: ${source.kind}${source.kind === 'mock' ? ` (x${config.mockSpeed})` : ''}`);
+  setStatus(false, false, source.kind === 'mock' ? 'Starting simulator' : 'Waiting for LMU');
+  pollTelemetry();
+}
+
+/** Forget the session: analyses, tire and lap history, voice conversation. */
+function clearSessionState() {
   Object.assign(state, {
     snapshot: null,
     field: [],
@@ -477,9 +488,6 @@ function switchSource(kind, mockSpeed) {
   history.reset();
   tracker.reset();
   voice.resetHistory();
-  log.info(`[control] telemetry source: ${source.kind}${source.kind === 'mock' ? ` (x${config.mockSpeed})` : ''}`);
-  setStatus(false, false, source.kind === 'mock' ? 'Starting simulator' : 'Waiting for LMU');
-  pollTelemetry();
 }
 
 app.get('/api/control', (_req, res) => res.json(controlState()));
@@ -527,11 +535,26 @@ app.post('/api/control', requireLocal, express.json(), (req, res) => {
   const currentSource = source.kind === 'mock' ? 'simulator' : 'game';
   const speedChanged = Number.isFinite(speed) && speed >= 1 && speed <= 50 && speed !== config.mockSpeed;
   try {
-    if ((wantSource && wantSource !== currentSource) || (speedChanged && (wantSource || currentSource) === 'simulator')) {
-      switchSource(wantSource || currentSource, speedChanged ? speed : null);
-      changes.push(`source=${wantSource || currentSource}`);
+    if (wantSource && wantSource !== currentSource) {
+      if (speedChanged) config.mockSpeed = speed;
+      switchSource(wantSource);
+      changes.push(`source=${wantSource}`);
     } else if (speedChanged) {
+      // the simulator keeps running at the new speed
       config.mockSpeed = speed;
+      if (source.kind === 'mock') source.reader.speedMultiplier = speed;
+      changes.push(`simSpeed=${speed}`);
+    }
+    // Simulator only: pick the session, call race control
+    if (source.kind === 'mock' && ['practice', 'qualifying', 'race'].includes(body.simSession)) {
+      source.reader.setSession(body.simSession);
+      config.mockSession = body.simSession;
+      clearSessionState();
+      changes.push(`simSession=${body.simSession}`);
+    }
+    if (source.kind === 'mock' && ['yellow', 'fcy', 'sc', 'green'].includes(body.raceControl)) {
+      source.reader.raceControl(body.raceControl);
+      changes.push(`raceControl=${body.raceControl}`);
     }
   } catch (err) {
     res.status(400).json({ error: err.message, state: controlState() });

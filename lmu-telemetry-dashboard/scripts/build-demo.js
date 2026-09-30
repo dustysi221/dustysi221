@@ -2,7 +2,7 @@
 
 /**
  * Builds a single self-contained HTML file of the engineer view running the
- * in-browser race simulator (public/demo-sim.js). Open it on any device,
+ * in-browser race simulator (public/race-sim.js + public/demo-sim.js). Open it on any device,
  * no server needed. Output: demo/pit-wall-demo.html
  *
  *   node scripts/build-demo.js
@@ -13,9 +13,11 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 let html = fs.readFileSync(path.join(root, 'public/engineer.html'), 'utf8');
+const core = fs.readFileSync(path.join(root, 'public/race-sim.js'), 'utf8');
 const sim = fs.readFileSync(path.join(root, 'public/demo-sim.js'), 'utf8');
 
 // Inline the simulator and switch it on
+html = html.replace('<script src="race-sim.js"></script>', () => `<script>\n${core}\n</script>`);
 html = html.replace(
   '<script src="demo-sim.js"></script>',
   () => `<script>window.LMU_DEMO = true;</script>\n<script>\n${sim}\n</script>`,
