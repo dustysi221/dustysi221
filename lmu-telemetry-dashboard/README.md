@@ -214,6 +214,11 @@ Claude calls). It shows:
 The traces and the live delta need one clean lap as a reference, and lap history
 starts when the page is opened.
 
+**Demo without the game:** `http://localhost:3000/engineer?demo` runs a simulated
+race in the browser (`public/demo-sim.js`), with buttons for sim speed and race
+control. `node scripts/build-demo.js` writes the same thing as one standalone file,
+`demo/pit-wall-demo.html`, that opens on any device with no server.
+
 ### Try it without the game
 
 The simulator runs a 90-minute race with AI rivals and a pit stop, on any OS:
