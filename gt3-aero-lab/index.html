@@ -969,7 +969,7 @@ function addHeatOverlay(mat) {
 const loadingEl = document.getElementById("loading");
 function loadModel() {
   if (!THREE.GLTFLoader) { loadingEl.textContent = "Showing the simplified car"; setTimeout(() => (loadingEl.style.opacity = 0), 3000); return; }
-  new THREE.GLTFLoader().load(MODEL_URL, (gltf) => {
+  const onModel = (gltf) => {
     model = gltf.scene;
     model.traverse((o) => {
       if (!o.isMesh) return;
@@ -991,12 +991,24 @@ function loadModel() {
     useMeasuredOutline();
     dirty.surface = dirty.stream = dirty.vec = true; lastCpKey = "";
     loadingEl.style.opacity = 0;
-  }, (e) => {
-    if (e.total) loadingEl.textContent = "Loading car model " + Math.round(e.loaded / e.total * 100) + "%";
-  }, () => {
+  };
+  const onFail = () => {
     loadingEl.textContent = "Couldn't load the detailed model. Showing the simplified car.";
     setTimeout(() => (loadingEl.style.opacity = 0), 4000);
-  });
+  };
+  const loader = new THREE.GLTFLoader();
+  // Hosts that can't serve .glb files can ship the model as a script that sets CAR_GLB_B64
+  if (window.CAR_GLB_B64) {
+    try {
+      const bin = atob(window.CAR_GLB_B64), buf = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      loader.parse(buf.buffer, "", onModel, onFail);
+    } catch (err) { onFail(); }
+    return;
+  }
+  loader.load(MODEL_URL, onModel, (e) => {
+    if (e.total) loadingEl.textContent = "Loading car model " + Math.round(e.loaded / e.total * 100) + "%";
+  }, onFail);
 }
 
 /* ---------- Surface pressure ---------- */
