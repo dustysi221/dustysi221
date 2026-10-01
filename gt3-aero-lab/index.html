@@ -118,6 +118,12 @@ h1 em { font-style: normal; color: var(--accent); }
 .view-bar button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 
 #labels { position: absolute; inset: 0; pointer-events: none; }
+.stage::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 95% at 50% 48%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+}
+.stage.cine .hud, .stage.cine #labels, .stage.cine .run-tag, .stage.cine .hint { opacity: 0; pointer-events: none; }
+.stage .hud, .stage #labels, .stage .run-tag { transition: opacity .4s; }
 .flabel {
   position: absolute; transform: translate(-50%, -130%);
   font: 500 11px/1.2 var(--font-mono); white-space: nowrap;
@@ -275,6 +281,7 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
       <button type="button" data-view="top">Top</button>
       <button type="button" data-view="under">Under</button>
       <button type="button" id="spinBtn" aria-pressed="false">Spin</button>
+      <button type="button" id="cineBtn" aria-pressed="false">Cinema</button>
     </div>
 
     <div class="hud">
@@ -329,7 +336,8 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
       </div>
       <div class="seg" role="group" aria-label="Smoke style">
         <span>Smoke style</span>
-        <button type="button" data-style="clean" aria-pressed="true">Clean tubes</button>
+        <button type="button" data-style="glow" aria-pressed="true">CFD glow</button>
+        <button type="button" data-style="clean" aria-pressed="false">Clean tubes</button>
         <button type="button" data-style="dense" aria-pressed="false">Dense rake</button>
       </div>
       <div class="seg" role="group" aria-label="Airflow colour">
@@ -425,7 +433,8 @@ const S = {
   cSpeed: 250, cYaw: 0, cWing: 7,       // smoothed values that drive the scene
   modes: { pressure: false, streamlines: true, smoke: true, particles: false, vectors: false, forces: true },
   tint: 0,                              // airflow colour: 0 white smoke, 1 pressure
-  style: "clean",                       // smoke lines: clean tubes or dense rake
+  style: "glow",                        // smoke lines: CFD glow, clean tubes or dense rake
+  cine: false,                          // cinematic view: overlays hidden
   pBlend: 0,                            // pressure heat-map blend 0..1
   time: 0,
 };
@@ -521,6 +530,7 @@ function useMeasuredOutline() {
   cabW = makeTable(ts, rw.map((v) => Math.min(0.6, Math.max(0.32, v > 0.25 ? v : 0.45))), 400, 6);
   AXLE_F = 1.22; AXLE_R = -1.43;
   WING.x = -2.15; WING.y = 1.1; WING.span = 0.95;
+  placeVortices();
 }
 
 // Approximate signed distance to a superelliptic loft
@@ -546,6 +556,15 @@ function carSD(x, y, z) {
    Flow field (analytic approximation, car-local frame)
    ========================================================= */
 var WING = { x: -2.14, y: 1.30, span: 0.93 };
+// Trailing vortex cores in the car frame (|z| side). sense +1 rolls air outward over the top.
+const VORTICES = [];
+function placeVortices() {
+  VORTICES.length = 0;
+  VORTICES.push({ x0: WING.x + 0.1, y: WING.y - 0.05, z: WING.span, g: 0.085, rc2: 0.012, len: 3.5, sense: 1, wing: true }); // wing tips
+  VORTICES.push({ x0: XR + 0.35, y: 0.17, z: 0.62, g: 0.05, rc2: 0.01, len: 2.6, sense: -1 });                           // diffuser edges
+  VORTICES.push({ x0: XF - 0.25, y: 0.3, z: 1.0, g: 0.03, rc2: 0.008, len: 2.2, sense: 1 });                              // dive planes
+}
+placeVortices();
 const flow = { ux: -1, uz: 0, load: 1 };  // local free-stream direction + wing load factor
 
 function noise3(x, y, z, t) {
@@ -607,13 +626,21 @@ function field(x, y, z, t, out) {
       vx += Gm * dy / r2;
       vy += -Gm * dx / r2;
     }
-    if (x < WING.x + 0.1) {
-      const dz = az - WING.span, dyy = y - (WING.y - 0.04);
-      const r2 = dz * dz + dyy * dyy + 0.04;
-      const decay = Math.exp((x - WING.x) / 1.8);
-      const Sv = 0.05 * L * decay;
-      vz += Math.sign(z || 1) * Sv * dyy / r2;
-      vy += -Sv * dz / r2;
+  }
+  // Trailing vortices (Lamb-Oseen cores), mirrored either side of the car:
+  // rear-wing tips, diffuser edges and the dive-plane vortex that runs down the flanks.
+  {
+    const L = flow.load, az = Math.abs(z), sz = Math.sign(z || 1);
+    for (const V of VORTICES) {
+      if (x > V.x0) continue;
+      const dy = y - V.y, dz = az - V.z;
+      const r2 = dy * dy + dz * dz;
+      if (r2 > 0.6) continue;
+      const r = Math.sqrt(r2) + 1e-4;
+      const decay = Math.exp((x - V.x0) / V.len);
+      const vth = V.g * (V.wing ? L : 1) * decay / r * (1 - Math.exp(-r2 / V.rc2));
+      vy += -V.sense * vth * dz / r;
+      vz += sz * V.sense * vth * dy / r;
     }
   }
   // Wake behind the car
@@ -675,15 +702,15 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true 
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.15;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x07090c, 12, 26);
 const camera = new THREE.PerspectiveCamera(36, 1, 0.05, 80);
-camera.position.set(6.2, 2.6, 5.4);
+camera.position.set(5.4, 1.25, 4.6);
 
 const controls = new THREE.OrbitControls(camera, canvas);
-controls.target.set(0, 0.55, 0);
+controls.target.set(0, 0.5, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 3.2;
@@ -696,15 +723,27 @@ if (THREE.RoomEnvironment) {
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
 }
-scene.add(new THREE.HemisphereLight(0xcfe3ff, 0x1a1410, 0.45));
-const key = new THREE.DirectionalLight(0xffffff, 1.5); key.position.set(4, 7, 5); scene.add(key);
-const rim = new THREE.DirectionalLight(0x88b8ff, 0.8); rim.position.set(-6, 3, -4); scene.add(rim);
-const fill = new THREE.DirectionalLight(0xffc9a0, 0.35); fill.position.set(0, 1, -6); scene.add(fill);
+// Cinematic rig: one hard key spot from high front-left, a cold blue rim from behind, little fill
+scene.add(new THREE.HemisphereLight(0xb8d4ff, 0x0a0806, 0.22));
+const key = new THREE.SpotLight(0xffffff, 2.6, 0, 0.62, 0.55, 1.2);
+key.position.set(4.5, 7.5, 4.2); key.target.position.set(0, 0.4, 0); scene.add(key, key.target);
+const rim = new THREE.DirectionalLight(0x6fa8ff, 1.5); rim.position.set(-6, 3.5, -3); scene.add(rim);
+const kick = new THREE.DirectionalLight(0x9cc4ff, 0.6); kick.position.set(-2, 1.2, 6); scene.add(kick);
+const fill = new THREE.DirectionalLight(0xffc9a0, 0.2); fill.position.set(0, 1, -6); scene.add(fill);
+// soft pool of light on the floor under the key
+{
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d"), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, "rgba(120,160,230,0.12)"); gr.addColorStop(1, "rgba(120,160,230,0)");
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(12, 8), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pool.rotation.x = -Math.PI / 2; pool.position.set(0.3, 0.003, 0.2); scene.add(pool);
+}
 
 // Tunnel floor + rolling road
 const floor = new THREE.Mesh(
   new THREE.CircleGeometry(22, 64),
-  new THREE.MeshStandardMaterial({ color: 0x080b0f, roughness: 1, metalness: 0, envMapIntensity: 0 })
+  new THREE.MeshLambertMaterial({ color: 0x07090c })   // matte: no grazing-angle glare
 );
 floor.rotation.x = -Math.PI / 2; scene.add(floor);
 const grid = new THREE.GridHelper(40, 80, 0x1b232d, 0x121820);
@@ -720,7 +759,7 @@ const roadCanvas = document.createElement("canvas"); roadCanvas.width = 64; road
 const roadTex = new THREE.CanvasTexture(roadCanvas);
 roadTex.encoding = THREE.sRGBEncoding;
 roadTex.wrapS = roadTex.wrapT = THREE.RepeatWrapping; roadTex.repeat.set(1, 6);
-const road = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 14), new THREE.MeshBasicMaterial({ map: roadTex, transparent: true, opacity: 0.9 }));
+const road = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 14), new THREE.MeshBasicMaterial({ map: roadTex, color: 0x262b33, transparent: true, opacity: 0.8 }));
 road.rotation.x = -Math.PI / 2; road.rotation.z = Math.PI / 2; road.position.y = 0.004; scene.add(road);
 
 /* ---------- Car ---------- */
@@ -972,6 +1011,68 @@ function addHeatOverlay(mat) {
   };
   mat.customProgramCacheKey = () => "heat-overlay";
 }
+/* ---------- Wheel motion blur: a spinning blurred-rim disc over each real wheel ---------- */
+const wheelBlur = new THREE.Group(); car.add(wheelBlur);
+const blurTex = (() => {
+  const N = 256, c = document.createElement("canvas"); c.width = c.height = N;
+  const g = c.getContext("2d"), m = N / 2;
+  const ring = (r0, r1, style) => { g.beginPath(); g.arc(m, m, r1 * m, 0, Math.PI * 2); g.arc(m, m, r0 * m, 0, Math.PI * 2, true); g.fillStyle = style; g.fill(); };
+  ring(0.74, 1.0, "#0a0a0b");                                          // tyre
+  for (let i = 0; i < 14; i++) ring(0.76 + i * 0.017, 0.765 + i * 0.017, `rgba(255,255,255,${0.02 + 0.03 * Math.random()})`);
+  ring(0.84, 0.9, "rgba(255,206,40,0.22)");                            // smeared sidewall lettering
+  const rim = g.createRadialGradient(m, m, 0, m, m, 0.74 * m);
+  rim.addColorStop(0, "#6b727b"); rim.addColorStop(0.35, "#3a3f46"); rim.addColorStop(0.8, "#24282d"); rim.addColorStop(1, "#15171a");
+  ring(0, 0.74, rim);
+  for (let i = 0; i < 22; i++) ring(0.12 + i * 0.028, 0.125 + i * 0.028, `rgba(200,210,225,${0.03 + 0.06 * Math.random()})`); // blurred spokes
+  for (let k = 0; k < 10; k++) {                                       // faint spoke smears so the spin reads
+    const a = k / 10 * Math.PI * 2;
+    g.beginPath(); g.moveTo(m, m); g.arc(m, m, 0.72 * m, a, a + 0.22); g.closePath();
+    g.fillStyle = "rgba(170,180,195,0.07)"; g.fill();
+  }
+  ring(0, 0.1, "#1b1d21"); ring(0.035, 0.06, "rgba(255,128,0,0.55)"); // hub / centre-lock
+  // soft outer edge
+  const e = g.createRadialGradient(m, m, 0.93 * m, m, m, m);
+  e.addColorStop(0, "rgba(0,0,0,0)"); e.addColorStop(1, "rgba(0,0,0,1)");
+  g.globalCompositeOperation = "destination-out"; g.fillStyle = e; g.fillRect(0, 0, N, N);
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
+})();
+function buildWheelBlur(root) {
+  while (wheelBlur.children.length) wheelBlur.remove(wheelBlur.children[0]);
+  let tyre = null;
+  root.traverse((o) => { if (o.isMesh && /mat_110/.test(o.material.name)) tyre = o; });
+  const groups = {};
+  if (tyre) {
+    car.updateMatrixWorld(true);
+    const M = new THREE.Matrix4().copy(car.matrixWorld).invert().multiply(tyre.matrixWorld);
+    const P = tyre.geometry.attributes.position, sc = attrScale(P), v = new THREE.Vector3();
+    for (let i = 0; i < P.count; i++) {
+      v.set(P.getX(i) * sc, P.getY(i) * sc, P.getZ(i) * sc).applyMatrix4(M);
+      const k = (v.x > 0 ? "f" : "r") + (v.z > 0 ? "l" : "r");
+      const b = groups[k] || (groups[k] = new THREE.Box3());
+      b.expandByPoint(v);
+    }
+  }
+  const mat = () => new THREE.MeshStandardMaterial({ map: blurTex, transparent: true, opacity: 0, roughness: 0.45, metalness: 0.35, depthWrite: false });
+  const add = (cx, cy, r, z, side) => {
+    const d = new THREE.Mesh(new THREE.CircleGeometry(r, 48), mat());
+    d.position.set(cx, cy, z + side * 0.006);
+    d.rotation.y = side > 0 ? 0 : Math.PI;
+    d.userData.side = side; d.userData.r = r;
+    wheelBlur.add(d);
+  };
+  const keys = Object.keys(groups);
+  if (keys.length === 4) {
+    for (const k of keys) {
+      const b = groups[k], side = k[1] === "l" ? 1 : -1;
+      const c = b.getCenter(new THREE.Vector3());
+      const r = Math.min(b.max.y - b.min.y, b.max.x - b.min.x) / 2 * 0.97;
+      add(c.x, c.y, r, side > 0 ? b.max.z : b.min.z, side);
+    }
+  } else {
+    for (const x of [AXLE_F, AXLE_R]) for (const side of [1, -1]) add(x, 0.35, 0.34, side * 1.02, side);
+  }
+}
+
 const loadingEl = document.getElementById("loading");
 function loadModel() {
   if (!THREE.GLTFLoader) { loadingEl.textContent = "Showing the simplified car"; setTimeout(() => (loadingEl.style.opacity = 0), 3000); return; }
@@ -981,7 +1082,7 @@ function loadModel() {
       if (!o.isMesh) return;
       const m = o.material;
       if (m.name === "Window") { m.color.setRGB(0.012, 0.016, 0.02); m.metalness = 0.6; m.roughness = 0.04; m.opacity = 0.82; }
-      m.envMapIntensity = 0.9;
+      m.envMapIntensity = 0.55;
       addHeatOverlay(m);
       const n = o.geometry.attributes.position.count;
       o.geometry.setAttribute("heat", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
@@ -994,6 +1095,7 @@ function loadModel() {
     model.traverse((o) => { if (o.isMesh) colorable.push(o); });
     car.add(model);
     proc.visible = false;
+    buildWheelBlur(model);
     useMeasuredOutline();
     dirty.surface = dirty.stream = dirty.vec = true; lastCpKey = "";
     loadingEl.style.opacity = 0;
@@ -1096,7 +1198,7 @@ function attrScale(a) {
 // Pressure colours read best under flatter light, so dim the studio reflections as they fade in
 function setHeatBlend(b) {
   HEATU.uHeatBlend.value = b;
-  if (model) model.traverse((o) => { if (o.isMesh) o.material.envMapIntensity = 0.9 - 0.75 * b; });
+  if (model) model.traverse((o) => { if (o.isMesh) o.material.envMapIntensity = 0.55 - 0.4 * b; });
 }
 function updateSurfaceCp() {
   car.updateMatrixWorld(true);
@@ -1222,14 +1324,19 @@ const GLSL_HEAT = `
     if (v < 0.65) return mix(c4, c5, (v - 0.3) / 0.35);
     return mix(c5, c6, (v - 0.65) / 0.35);
   }`;
-const RIB_U = { uTime: { value: 0 }, uSpeed: { value: 1 }, uTint: { value: 0 }, uSpeedScale: { value: 1 }, uAmp: { value: 1 } };
+const RIB_U = { uTime: { value: 0 }, uSpeed: { value: 1 }, uTint: { value: 0 }, uSpeedScale: { value: 1 }, uAmp: { value: 1 }, uWobble: { value: 0 } };
 // Shared vertex stage: camera-facing strip; `brk` (0..1) widens the strip as it breaks into the wake
 const RIB_VERT = `
-  uniform float uWidth; uniform float uSpread;
+  uniform float uWidth; uniform float uSpread; uniform float uTime; uniform float uWobble;
   attribute vec3 tang; attribute float side; attribute float arc; attribute float cp; attribute float fade; attribute float brk;
   varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
   void main(){
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    // turbulence: the wake end of each tube writhes over time
+    vec3 p = position;
+    float w = uWobble * brk;
+    p.y += w * 0.07 * sin(arc * 4.7 - uTime * 7.0) * (0.6 + 0.4 * sin(arc * 1.3 + uTime));
+    p.z += w * 0.07 * cos(arc * 3.9 - uTime * 6.1);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
     vec3 t = normalize((modelViewMatrix * vec4(tang, 0.0)).xyz + 1e-5);
     vec3 n = normalize(cross(t, normalize(mv.xyz)) + 1e-5);
     mv.xyz += n * side * uWidth * (1.0 + uSpread * brk);
@@ -1287,16 +1394,49 @@ const tubeMat = new THREE.ShaderMaterial({
     }`,
   transparent: true, depthWrite: false, side: THREE.DoubleSide,
 });
+// Luminous CFD-style tube: white core grading to blue at the rim, additive so it glows.
+// `halo` draws the wide, faint bloom around it.
+function cfdMaterial(width, halo) {
+  return new THREE.ShaderMaterial({
+    uniforms: Object.assign({ uWidth: { value: width }, uSpread: { value: halo ? 1.6 : 0.9 } }, RIB_U),
+    vertexShader: RIB_VERT,
+    fragmentShader: `
+      uniform float uTime; uniform float uSpeed; uniform float uTint; uniform float uSpeedScale; uniform float uAmp;
+      varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
+      ${GLSL_HEAT}
+      void main(){
+        float r = abs(vSide);
+        float ph = fract(vArc * 0.28 - uTime * uSpeed);
+        float pulse = 0.85 + 0.55 * smoothstep(0.62, 1.0, ph);
+        float p = vCp * uSpeedScale; p = p < 0.0 ? p / 1.1 : p / 0.8;
+        float fade = vFade * (1.0 - 0.75 * vBrk) * uAmp;
+        ${halo ? `
+        float a = exp(-r * r * 3.0) * 0.16;
+        vec3 col = mix(vec3(0.2, 0.5, 1.0), heatc(p), uTint);
+        gl_FragColor = vec4(col * a * fade * pulse, 1.0);` : `
+        float core = exp(-r * r * 7.0);
+        vec3 col = mix(vec3(0.22, 0.52, 1.0), vec3(0.92, 0.97, 1.0), core);
+        col = mix(col, heatc(p) * (0.5 + 0.5 * core), uTint);
+        float a = (0.16 + 0.7 * core) * smoothstep(1.0, 0.7, r);
+        gl_FragColor = vec4(col * a * fade * pulse, 1.0);`}
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+}
 const ribGeo = new THREE.BufferGeometry();
 const ribGlow = new THREE.Mesh(ribGeo, ribbonMaterial(0.05, 0.05, 0.6));
 const ribCore = new THREE.Mesh(ribGeo, ribbonMaterial(0.011, 0.55, 1.1));
 const ribTube = new THREE.Mesh(ribGeo, tubeMat);
-ribGlow.frustumCulled = ribCore.frustumCulled = ribTube.frustumCulled = false;
+const cfdHalo = new THREE.Mesh(ribGeo, cfdMaterial(0.1, true));
+const cfdCore = new THREE.Mesh(ribGeo, cfdMaterial(0.032, false));
+for (const m of [ribGlow, ribCore, ribTube, cfdHalo, cfdCore]) m.frustumCulled = false;
 ribTube.renderOrder = 3;
-const streamlines = new THREE.Group(); streamlines.add(ribGlow, ribCore, ribTube); scene.add(streamlines);
+const streamlines = new THREE.Group(); streamlines.add(ribGlow, ribCore, ribTube, cfdHalo, cfdCore); scene.add(streamlines);
 function applySmokeStyle() {
-  const clean = S.style === "clean";
-  ribTube.visible = clean; ribGlow.visible = ribCore.visible = !clean;
+  ribTube.visible = S.style === "clean";
+  ribGlow.visible = ribCore.visible = S.style === "dense";
+  cfdHalo.visible = cfdCore.visible = S.style === "glow";
+  RIB_U.uWobble.value = S.style === "glow" ? 1 : S.style === "clean" ? 0.4 : 0;
 }
 
 // Trace one path through the field (midpoint integration, world space)
@@ -1359,12 +1499,24 @@ const breakPoints = [];
 // Seeds for the clean style, as [height, offset across the car]. Chosen to show the nose,
 // bonnet and roof, the splitter/underfloor, the flanks, and the rear wing.
 const CLEAN_SEEDS = [[0.36, -0.42], [0.44, -0.12], [0.44, 0.16], [0.36, 0.46], [0.62, -0.22], [0.62, 0.26], [0.16, -0.62], [0.16, 0.6]];
+// Seeds for the CFD glow style: every aero zone gets lines, including ones aimed just off the
+// vortex cores so they wind into visible spirals.
+const GLOW_SEEDS = [
+  [0.07, -0.55], [0.07, -0.18], [0.07, 0.18], [0.07, 0.55],          // underflow via the splitter
+  [0.16, -0.88], [0.16, 0.88],                                       // splitter edges
+  [0.3, -1.08], [0.3, 1.08], [0.5, -1.06], [0.5, 1.06],              // dive-plane vortex + sidepods
+  [0.72, -0.98], [0.72, 0.98],                                       // shoulders
+  [0.4, -0.32], [0.46, 0], [0.4, 0.32], [0.62, -0.16], [0.62, 0.16], // nose, bonnet, roof
+  [0.86, 0],
+  [0.98, -0.84], [0.98, 0.84], [1.12, -0.92], [1.12, 0.92],          // into the wing-tip vortices
+  [1.02, -0.45], [1.02, 0.45], [1.25, -0.2], [1.25, 0.2],            // over the roof onto the wing
+];
 function buildStreamlines() {
-  const clean = S.style === "clean";
+  const clean = S.style !== "dense", glow = S.style === "glow";
   const pos = [], tang = [], side = [], arc = [], cps = [], fade = [], brk = [], idx = [];
   let seeds = [];
   if (clean) {
-    seeds = CLEAN_SEEDS;
+    seeds = glow ? GLOW_SEEDS : CLEAN_SEEDS;
   } else {
     const ys = isSmall ? [0.08, 0.3, 0.52, 0.74, 0.94, 1.12, 1.3] : [0.06, 0.2, 0.34, 0.48, 0.62, 0.76, 0.9, 1.04, 1.16, 1.28, 1.42];
     const zs = isSmall ? [-0.9, -0.45, 0, 0.45, 0.9] : [-1.15, -0.85, -0.55, -0.28, 0, 0.28, 0.55, 0.85, 1.15];
@@ -1377,7 +1529,7 @@ function buildStreamlines() {
   for (const [y0, z0] of seeds) {
     const jy = clean ? 0 : (rnd() - 0.5) * 0.04, jz = clean ? 0 : (rnd() - 0.5) * 0.06;
     let pts = tracePath(clean ? 9 : 5.5, y0 + jy, z0 + jz, clean ? 0.035 : 0.045, clean ? 480 : 320);
-    if (clean) pts = smoothPath(pts, 4);
+    if (clean) pts = smoothPath(pts, glow ? 2 : 4);
     const n = pts.length / 5;
     if (n < 3) continue;
     const base = pos.length / 3;
@@ -1392,7 +1544,8 @@ function buildStreamlines() {
       let f, k = 0;
       if (clean) {
         f = Math.min(1, u / 0.04);
-        k = Math.min(1, Math.max(0, (behind + 0.1) / 1.9));     // break-up over ~2 m behind the tail
+        k = Math.min(1, Math.max(0, (behind + 0.1) / (glow ? 3.2 : 1.9)));     // break-up behind the tail
+        if (glow) f *= 1 - Math.max(0, (u - 0.86) / 0.14);
         if (!marked && k > 0.08) { breakPoints.push([x, pts[o + 1], pts[o + 2]]); marked = true; }
       } else {
         f = Math.min(1, u / 0.06) * (1 - Math.max(0, (u - 0.8) / 0.2));
@@ -1582,7 +1735,7 @@ const labelAnchors = { dfF: new THREE.Vector3(), dfR: new THREE.Vector3(), drag:
 
 const _a = new THREE.Vector3(), _d = new THREE.Vector3();
 function updateArrows(A) {
-  const on = S.modes.forces;
+  const on = S.modes.forces && !S.cine;
   for (const k in arrows) arrows[k].visible = on;
   if (!on) { for (const k in labels) labels[k].style.display = "none"; return; }
   const kN = (n) => (n / 1000).toFixed(1) + " kN";
@@ -1705,7 +1858,8 @@ document.querySelectorAll("[data-tint]").forEach((b) => b.addEventListener("clic
 
 // Camera presets
 const VIEWS = {
-  three: { p: [6.2, 2.6, 5.4], t: [0, 0.55, 0] },
+  three: { p: [5.4, 1.25, 4.6], t: [0, 0.5, 0] },
+  cine: { p: [4.7, 0.85, 3.9], t: [-0.2, 0.55, 0] },
   side:  { p: [0, 1.1, 8.4], t: [0, 0.6, 0] },
   rear:  { p: [-6.4, 2.4, 4.2], t: [-0.6, 0.7, 0] },
   top:   { p: [0.01, 12, 0.8], t: [-0.3, 0.5, 0] },
@@ -1728,6 +1882,15 @@ document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("clic
   document.querySelectorAll("[data-view]").forEach((x) => x.setAttribute("aria-pressed", x === b));
   goView(b.dataset.view);
 }));
+$("cineBtn").addEventListener("click", (e) => {
+  S.cine = !S.cine;
+  e.currentTarget.setAttribute("aria-pressed", S.cine);
+  stageEl.classList.toggle("cine", S.cine);
+  if (S.cine) {
+    if (S.style !== "glow") document.querySelector('[data-style="glow"]').click();
+    goView("cine");
+  }
+});
 $("spinBtn").addEventListener("click", (e) => {
   controls.autoRotate = !controls.autoRotate;
   e.currentTarget.setAttribute("aria-pressed", controls.autoRotate);
@@ -1908,6 +2071,13 @@ function frame(now) {
   roadTex.offset.y -= vis * dt / 14 * 6 * 0.35;
   road.rotation.z = Math.PI / 2 + S.cYaw * DEG;
   for (const w of wheelSpin) w.g.rotation.z -= w.dir * vis * dt / 0.345;
+  // motion blur fades in with speed; the disc turns slowly so the smear reads as rotation
+  const blur = Math.min(1, Math.max(0, (S.cSpeed - 30) / 110)) * 0.94;
+  for (const d of wheelBlur.children) {
+    d.material.opacity = blur;
+    d.visible = blur > 0.01;
+    d.rotation.z -= d.userData.side * (2 + vis * 1.6) * dt;
+  }
 
   updateArrows(A);
   updateHighlight(now);
