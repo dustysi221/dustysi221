@@ -320,12 +320,17 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
     <section>
       <h2>Visualise <span>toggle any mix</span></h2>
       <div class="modes">
-        <button type="button" class="mode" data-mode="pressure" aria-pressed="true"><i class="sw"></i><b>Pressure zones</b><span>Heat map on the body</span></button>
+        <button type="button" class="mode" data-mode="pressure" aria-pressed="false"><i class="sw"></i><b>Pressure zones</b><span>Heat map on the body</span></button>
         <button type="button" class="mode" data-mode="streamlines" aria-pressed="true"><i class="sw"></i><b>Smoke lines</b><span>Paths the air takes</span></button>
         <button type="button" class="mode" data-mode="smoke" aria-pressed="true"><i class="sw"></i><b>Wake smoke</b><span>Turbulence behind the car</span></button>
         <button type="button" class="mode" data-mode="particles" aria-pressed="false"><i class="sw"></i><b>Particles</b><span>Fast tracer streaks</span></button>
         <button type="button" class="mode" data-mode="vectors" aria-pressed="false"><i class="sw"></i><b>Vectors</b><span>Local speed and direction</span></button>
         <button type="button" class="mode" data-mode="forces" aria-pressed="true"><i class="sw"></i><b>Force arrows</b><span>Downforce, drag, side</span></button>
+      </div>
+      <div class="seg" role="group" aria-label="Smoke style">
+        <span>Smoke style</span>
+        <button type="button" data-style="clean" aria-pressed="true">Clean tubes</button>
+        <button type="button" data-style="dense" aria-pressed="false">Dense rake</button>
       </div>
       <div class="seg" role="group" aria-label="Airflow colour">
         <span>Airflow colour</span>
@@ -418,9 +423,10 @@ const isSmall = window.matchMedia("(max-width: 880px)").matches;
 const S = {
   speed: 250, yaw: 0, wing: 7,          // targets from sliders
   cSpeed: 250, cYaw: 0, cWing: 7,       // smoothed values that drive the scene
-  modes: { pressure: true, streamlines: true, smoke: true, particles: false, vectors: false, forces: true },
+  modes: { pressure: false, streamlines: true, smoke: true, particles: false, vectors: false, forces: true },
   tint: 0,                              // airflow colour: 0 white smoke, 1 pressure
-  pBlend: 1,                            // pressure heat-map blend 0..1
+  style: "clean",                       // smoke lines: clean tubes or dense rake
+  pBlend: 0,                            // pressure heat-map blend 0..1
   time: 0,
 };
 const RHO = 1.225, AREA = 1.95, G = 9.81;
@@ -945,7 +951,7 @@ const MODEL_URL = "mclaren-720s-gt3-evo.glb";
 let model = null;
 // Shared uniforms for the pressure overlay and the feature highlight on the model's own materials
 const HEATU = {
-  uHeatBlend: { value: 1 },
+  uHeatBlend: { value: 0 },
   uCarInv: { value: new THREE.Matrix4() },
   uHiMin: { value: new THREE.Vector3() },
   uHiMax: { value: new THREE.Vector3() },
@@ -1199,7 +1205,11 @@ function stepParticles(dt) {
   streakGeo.attributes.color.needsUpdate = true;
 }
 
-/* ---------- Smoke lines (glowing ribbons, like a smoke rake in a real tunnel) ---------- */
+/* ---------- Smoke lines ----------
+   Two styles share one tracer:
+   - "clean": a handful of thick white smoke tubes, like a single smoke wand in a tunnel.
+     They hug the body, then break up into the wake.
+   - "dense": a full rake of thin glowing lines for a more data-like view. */
 const GLSL_HEAT = `
   vec3 heatc(float v){
     v = clamp(v, -1.0, 1.0);
@@ -1213,43 +1223,81 @@ const GLSL_HEAT = `
     return mix(c5, c6, (v - 0.65) / 0.35);
   }`;
 const RIB_U = { uTime: { value: 0 }, uSpeed: { value: 1 }, uTint: { value: 0 }, uSpeedScale: { value: 1 }, uAmp: { value: 1 } };
+// Shared vertex stage: camera-facing strip; `brk` (0..1) widens the strip as it breaks into the wake
+const RIB_VERT = `
+  uniform float uWidth; uniform float uSpread;
+  attribute vec3 tang; attribute float side; attribute float arc; attribute float cp; attribute float fade; attribute float brk;
+  varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
+  void main(){
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vec3 t = normalize((modelViewMatrix * vec4(tang, 0.0)).xyz + 1e-5);
+    vec3 n = normalize(cross(t, normalize(mv.xyz)) + 1e-5);
+    mv.xyz += n * side * uWidth * (1.0 + uSpread * brk);
+    mv.xyz *= 0.993;   // sit a hair in front of the body so tubes skimming it stay visible
+    vSide = side; vArc = arc; vCp = cp; vFade = fade; vBrk = brk;
+    gl_Position = projectionMatrix * mv;
+  }`;
 function ribbonMaterial(width, alpha, pulse) {
   return new THREE.ShaderMaterial({
-    uniforms: Object.assign({ uWidth: { value: width }, uAlpha: { value: alpha }, uPulse: { value: pulse } }, RIB_U),
-    vertexShader: `
-      uniform float uWidth;
-      attribute vec3 tang; attribute float side; attribute float arc; attribute float cp; attribute float fade;
-      varying float vSide; varying float vArc; varying float vCp; varying float vFade;
-      void main(){
-        vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        vec3 t = normalize((modelViewMatrix * vec4(tang, 0.0)).xyz + 1e-5);
-        vec3 n = normalize(cross(t, normalize(mv.xyz)) + 1e-5);
-        mv.xyz += n * side * uWidth;
-        vSide = side; vArc = arc; vCp = cp; vFade = fade;
-        gl_Position = projectionMatrix * mv;
-      }`,
+    uniforms: Object.assign({ uWidth: { value: width }, uSpread: { value: 0 }, uAlpha: { value: alpha }, uPulse: { value: pulse } }, RIB_U),
+    vertexShader: RIB_VERT,
     fragmentShader: `
       uniform float uAlpha; uniform float uPulse; uniform float uTime; uniform float uSpeed;
       uniform float uTint; uniform float uSpeedScale; uniform float uAmp;
-      varying float vSide; varying float vArc; varying float vCp; varying float vFade;
+      varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
       ${GLSL_HEAT}
       void main(){
         float edge = 1.0 - vSide * vSide; edge *= edge;
         float ph = fract(vArc * 0.32 - uTime * uSpeed);
         float glow = 0.75 + uPulse * smoothstep(0.55, 1.0, ph);
         float p = vCp * uSpeedScale; p = p < 0.0 ? p / 1.1 : p / 0.8;
-        vec3 smoke = vec3(0.9, 0.94, 1.0);
-        vec3 col = mix(smoke, heatc(p), uTint);
+        vec3 col = mix(vec3(0.9, 0.94, 1.0), heatc(p), uTint);
         gl_FragColor = vec4(col * edge * vFade * uAlpha * glow * uAmp, 1.0);
       }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
   });
 }
+// Solid, softly shaded smoke tube. Normal blending so it reads as white smoke, not light.
+const tubeMat = new THREE.ShaderMaterial({
+  uniforms: Object.assign({ uWidth: { value: 0.042 }, uSpread: { value: 2.6 } }, RIB_U),
+  vertexShader: RIB_VERT,
+  fragmentShader: `
+    uniform float uTime; uniform float uSpeed; uniform float uTint; uniform float uSpeedScale; uniform float uAmp;
+    varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
+    ${GLSL_HEAT}
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+      return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+    void main(){
+      float r = abs(vSide);
+      // round tube profile: bright core, soft rim
+      float body = 1.0 - smoothstep(0.55, 1.0, r);
+      float shade = 0.78 + 0.22 * sqrt(max(0.0, 1.0 - r * r));
+      // as the tube breaks up it turns wispy: noise eats into it, moving with the flow
+      float n = vnoise(vec2(vArc * 3.0 - uTime * uSpeed * 6.0, vSide * 1.6 + vArc * 0.7));
+      float wisp = mix(1.0, smoothstep(0.25 + 0.5 * vBrk, 1.0, n + 0.35), vBrk);
+      float a = body * wisp * vFade * (1.0 - vBrk * vBrk * 0.85) * uAmp;
+      // a faint travelling shimmer gives the direction of flow without strobing
+      float ph = fract(vArc * 0.18 - uTime * uSpeed * 0.6);
+      shade += 0.08 * smoothstep(0.7, 1.0, ph);
+      float p = vCp * uSpeedScale; p = p < 0.0 ? p / 1.1 : p / 0.8;
+      vec3 col = mix(vec3(0.93, 0.94, 0.95), heatc(p), uTint) * shade;
+      if (a < 0.01) discard;
+      gl_FragColor = vec4(col, a * 0.95);
+    }`,
+  transparent: true, depthWrite: false, side: THREE.DoubleSide,
+});
 const ribGeo = new THREE.BufferGeometry();
 const ribGlow = new THREE.Mesh(ribGeo, ribbonMaterial(0.05, 0.05, 0.6));
 const ribCore = new THREE.Mesh(ribGeo, ribbonMaterial(0.011, 0.55, 1.1));
-ribGlow.frustumCulled = ribCore.frustumCulled = false;
-const streamlines = new THREE.Group(); streamlines.add(ribGlow, ribCore); scene.add(streamlines);
+const ribTube = new THREE.Mesh(ribGeo, tubeMat);
+ribGlow.frustumCulled = ribCore.frustumCulled = ribTube.frustumCulled = false;
+ribTube.renderOrder = 3;
+const streamlines = new THREE.Group(); streamlines.add(ribGlow, ribCore, ribTube); scene.add(streamlines);
+function applySmokeStyle() {
+  const clean = S.style === "clean";
+  ribTube.visible = clean; ribGlow.visible = ribCore.visible = !clean;
+}
 
 // Trace one path through the field (midpoint integration, world space)
 function tracePath(x, y, z, h, maxN) {
@@ -1268,34 +1316,95 @@ function tracePath(x, y, z, h, maxN) {
   }
   return pts;
 }
+
+// Smooth a traced path (Gaussian-ish passes), then nudge any point that sank into the body back out.
+// Keeps clean tubes as calm arcs instead of picking up every ripple in the analytic field.
+function smoothPath(pts, passes) {
+  const n = pts.length / 5;
+  const tmp = new Float32Array(n * 3);
+  for (let p = 0; p < passes; p++) {
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0, wsum = 0;
+        for (let k = -4; k <= 4; k++) {
+          const j = Math.min(n - 1, Math.max(0, i + k)), w = 5 - Math.abs(k);
+          sum += pts[j * 5 + c] * w; wsum += w;
+        }
+        tmp[i * 3 + c] = sum / wsum;
+      }
+    }
+    for (let i = 1; i < n; i++) for (let c = 0; c < 3; c++) pts[i * 5 + c] = tmp[i * 3 + c];
+  }
+  const h = 0.02;
+  for (let i = 0; i < n; i++) {
+    const o = i * 5;
+    toLocal(pts[o], pts[o + 2], _l);
+    const lx = _l[0], ly = pts[o + 1], lz = _l[1];
+    const d = carSD(lx, ly, lz);
+    if (d < 0.03) {
+      let nx = carSD(lx + h, ly, lz) - carSD(lx - h, ly, lz);
+      let ny = carSD(lx, ly + h, lz) - carSD(lx, ly - h, lz);
+      let nz = carSD(lx, ly, lz + h) - carSD(lx, ly, lz - h);
+      const nl = Math.hypot(nx, ny, nz) || 1, m = (0.03 - d) / nl;
+      toWorld(nx * m, nz * m, _w);
+      pts[o] += _w[0]; pts[o + 1] = Math.max(0.02, ly + ny * m); pts[o + 2] += _w[1];
+    }
+    if (pts[o + 1] < 0.02) pts[o + 1] = 0.02;
+  }
+  return pts;
+}
+
+// Where each clean tube starts breaking up; the wake smoke is shed from these points
+const breakPoints = [];
+// Seeds for the clean style, as [height, offset across the car]. Chosen to show the nose,
+// bonnet and roof, the splitter/underfloor, the flanks, and the rear wing.
+const CLEAN_SEEDS = [[0.36, -0.42], [0.44, -0.12], [0.44, 0.16], [0.36, 0.46], [0.62, -0.22], [0.62, 0.26], [0.16, -0.62], [0.16, 0.6]];
 function buildStreamlines() {
-  const pos = [], tang = [], side = [], arc = [], cps = [], fade = [], idx = [];
-  const ys = isSmall ? [0.08, 0.3, 0.52, 0.74, 0.94, 1.12, 1.3] : [0.06, 0.2, 0.34, 0.48, 0.62, 0.76, 0.9, 1.04, 1.16, 1.28, 1.42];
-  const zs = isSmall ? [-0.9, -0.45, 0, 0.45, 0.9] : [-1.15, -0.85, -0.55, -0.28, 0, 0.28, 0.55, 0.85, 1.15];
+  const clean = S.style === "clean";
+  const pos = [], tang = [], side = [], arc = [], cps = [], fade = [], brk = [], idx = [];
+  let seeds = [];
+  if (clean) {
+    seeds = CLEAN_SEEDS;
+  } else {
+    const ys = isSmall ? [0.08, 0.3, 0.52, 0.74, 0.94, 1.12, 1.3] : [0.06, 0.2, 0.34, 0.48, 0.62, 0.76, 0.9, 1.04, 1.16, 1.28, 1.42];
+    const zs = isSmall ? [-0.9, -0.45, 0, 0.45, 0.9] : [-1.15, -0.85, -0.55, -0.28, 0, 0.28, 0.55, 0.85, 1.15];
+    for (const y of ys) for (const z of zs) seeds.push([y, z]);
+  }
   let seed = 7;
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-  for (const y0 of ys) for (const z0 of zs) {
-    const pts = tracePath(5.5, y0 + (rnd() - 0.5) * 0.04, z0 + (rnd() - 0.5) * 0.06, 0.045, 320);
+  breakPoints.length = 0;
+  const tailX = XR * cosY;
+  for (const [y0, z0] of seeds) {
+    const jy = clean ? 0 : (rnd() - 0.5) * 0.04, jz = clean ? 0 : (rnd() - 0.5) * 0.06;
+    let pts = tracePath(clean ? 9 : 5.5, y0 + jy, z0 + jz, clean ? 0.035 : 0.045, clean ? 480 : 320);
+    if (clean) pts = smoothPath(pts, 4);
     const n = pts.length / 5;
     if (n < 3) continue;
     const base = pos.length / 3;
     const off = rnd() * 6;
+    let marked = false;
     for (let i = 0; i < n; i++) {
       const o = i * 5, a = Math.max(0, i - 1) * 5, b = Math.min(n - 1, i + 1) * 5;
       const tx = pts[b] - pts[a], ty = pts[b + 1] - pts[a + 1], tz = pts[b + 2] - pts[a + 2];
       const u = i / (n - 1);
       const x = pts[o];
-      // fade in at the rake, dissolve into the wake behind the car
-      let f = Math.min(1, u / 0.06) * (1 - Math.max(0, (u - 0.8) / 0.2));
-      const behind = XR * cosY - x;
-      if (behind > 0) f *= Math.exp(-behind / 1.4);
+      const behind = tailX - x;
+      let f, k = 0;
+      if (clean) {
+        f = Math.min(1, u / 0.04);
+        k = Math.min(1, Math.max(0, (behind + 0.1) / 1.9));     // break-up over ~2 m behind the tail
+        if (!marked && k > 0.08) { breakPoints.push([x, pts[o + 1], pts[o + 2]]); marked = true; }
+      } else {
+        f = Math.min(1, u / 0.06) * (1 - Math.max(0, (u - 0.8) / 0.2));
+        if (behind > 0) f *= Math.exp(-behind / 1.4);
+      }
       for (const sd of [-1, 1]) {
         pos.push(pts[o], pts[o + 1], pts[o + 2]);
-        tang.push(tx, ty, tz); side.push(sd); arc.push(pts[o + 4] + off); cps.push(pts[o + 3]); fade.push(f);
+        tang.push(tx, ty, tz); side.push(sd); arc.push(pts[o + 4] + off); cps.push(pts[o + 3]); fade.push(f); brk.push(k);
       }
       if (i < n - 1) {
-        const k = base + i * 2;
-        idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+        const q = base + i * 2;
+        idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
       }
     }
   }
@@ -1306,40 +1415,71 @@ function buildStreamlines() {
   ribGeo.setAttribute("arc", new THREE.Float32BufferAttribute(arc, 1));
   ribGeo.setAttribute("cp", new THREE.Float32BufferAttribute(cps, 1));
   ribGeo.setAttribute("fade", new THREE.Float32BufferAttribute(fade, 1));
+  ribGeo.setAttribute("brk", new THREE.Float32BufferAttribute(brk, 1));
+  applySmokeStyle();
 }
 
-/* ---------- Wake smoke (soft sprites shed from the tail, wheels and wing tips) ---------- */
-const SMOKE_N = isSmall ? 420 : 800;
+/* ---------- Wake smoke (billowing puffs shed where the tubes break up, plus the tail, wheels and wing tips) ---------- */
+const SMOKE_N = isSmall ? 220 : 380;
 const smPos = new Float32Array(SMOKE_N * 3), smSize = new Float32Array(SMOKE_N), smAlpha = new Float32Array(SMOKE_N);
+const smRot = new Float32Array(SMOKE_N), smSpin = new Float32Array(SMOKE_N);
 const smAge = new Float32Array(SMOKE_N), smLife = new Float32Array(SMOKE_N);
 const smokeGeo = new THREE.BufferGeometry();
 smokeGeo.setAttribute("position", new THREE.BufferAttribute(smPos, 3));
 smokeGeo.setAttribute("size", new THREE.BufferAttribute(smSize, 1));
 smokeGeo.setAttribute("alpha", new THREE.BufferAttribute(smAlpha, 1));
+smokeGeo.setAttribute("rot", new THREE.BufferAttribute(smRot, 1));
+// Procedural puff texture: a cluster of soft blobs, so each sprite looks like a curl of smoke
+const puffTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  let sd = 3; const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 26; i++) {
+    const a = r() * Math.PI * 2, d = r() * 30, x = 64 + Math.cos(a) * d, y = 64 + Math.sin(a) * d, rad = 14 + r() * 26;
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, "rgba(255,255,255,0.22)"); gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  }
+  const t = new THREE.CanvasTexture(c);
+  return t;
+})();
 const smokeMat = new THREE.ShaderMaterial({
-  uniforms: { uScale: { value: 400 } },
+  uniforms: { uScale: { value: 400 }, uTex: { value: puffTex } },
   vertexShader: `
-    uniform float uScale; attribute float size; attribute float alpha; varying float vA;
-    void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vA = alpha; gl_PointSize = size * uScale / -mv.z; gl_Position = projectionMatrix * mv; }`,
+    uniform float uScale; attribute float size; attribute float alpha; attribute float rot; varying float vA; varying float vR;
+    void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vA = alpha; vR = rot;
+      gl_PointSize = min(size * uScale / -mv.z, 512.0); gl_Position = projectionMatrix * mv; }`,
   fragmentShader: `
-    varying float vA;
-    void main(){ vec2 d = gl_PointCoord - 0.5; float a = exp(-dot(d,d) * 11.0) - 0.064; if (a <= 0.0) discard;
-      gl_FragColor = vec4(vec3(0.86, 0.9, 0.95) * a * vA, 1.0); }`,
-  transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+    uniform sampler2D uTex; varying float vA; varying float vR;
+    void main(){
+      vec2 d = gl_PointCoord - 0.5; float c = cos(vR), s = sin(vR);
+      vec2 uv = vec2(c * d.x - s * d.y, s * d.x + c * d.y) + 0.5;
+      float a = texture2D(uTex, uv).a * vA * smoothstep(0.5, 0.3, length(d));
+      if (a < 0.004) discard;
+      gl_FragColor = vec4(vec3(0.84, 0.86, 0.88), a);
+    }`,
+  transparent: true, depthWrite: false,
 });
 const smoke = new THREE.Points(smokeGeo, smokeMat);
-smoke.frustumCulled = false; scene.add(smoke);
+smoke.frustumCulled = false; smoke.renderOrder = 4; scene.add(smoke);
 
 function spawnSmoke(i) {
   const r = Math.random();
-  let x, y, z;
-  if (r < 0.5) { x = XR + 0.05; y = 0.12 + Math.random() * 0.8; z = (Math.random() * 2 - 1) * 0.85; }         // tail / diffuser exit
-  else if (r < 0.7) { x = WING.x - 0.15; y = WING.y + (Math.random() - 0.5) * 0.08; z = (Math.random() < 0.5 ? -1 : 1) * WING.span; } // wing-tip vortices
-  else if (r < 0.9) { x = AXLE_R - 0.2 - Math.random() * 0.3; y = 0.08 + Math.random() * 0.4; z = (Math.random() < 0.5 ? -1 : 1) * (0.8 + Math.random() * 0.25); } // rear wheels
-  else { x = AXLE_F - 0.35; y = 0.1 + Math.random() * 0.35; z = (Math.random() < 0.5 ? -1 : 1) * (0.95 + Math.random() * 0.15); }   // front wheel wake
-  toWorld(x, z, _w);
-  smPos[i * 3] = _w[0]; smPos[i * 3 + 1] = y; smPos[i * 3 + 2] = _w[1];
-  smAge[i] = 0; smLife[i] = 1.1 + Math.random() * 1.6;
+  const o = i * 3;
+  if (S.style === "clean" && breakPoints.length && r < 0.6) {
+    // continue a smoke tube as it breaks up
+    const b = breakPoints[(Math.random() * breakPoints.length) | 0];
+    smPos[o] = b[0] - Math.random() * 0.4; smPos[o + 1] = b[1] + (Math.random() - 0.5) * 0.08; smPos[o + 2] = b[2] + (Math.random() - 0.5) * 0.08;
+  } else {
+    let x, y, z;
+    if (r < 0.75) { x = XR + 0.05; y = 0.12 + Math.random() * 0.75; z = (Math.random() * 2 - 1) * 0.8; }       // tail / diffuser exit
+    else if (r < 0.88) { x = WING.x - 0.15; y = WING.y + (Math.random() - 0.5) * 0.08; z = (Math.random() < 0.5 ? -1 : 1) * WING.span; } // wing-tip vortices
+    else { x = AXLE_R - 0.25 - Math.random() * 0.3; y = 0.1 + Math.random() * 0.35; z = (Math.random() < 0.5 ? -1 : 1) * (0.85 + Math.random() * 0.2); } // rear wheels
+    toWorld(x, z, _w);
+    smPos[o] = _w[0]; smPos[o + 1] = y; smPos[o + 2] = _w[1];
+  }
+  smAge[i] = 0; smLife[i] = 1.4 + Math.random() * 1.8;
+  smRot[i] = Math.random() * Math.PI * 2; smSpin[i] = (Math.random() - 0.5) * 1.2;
 }
 for (let i = 0; i < SMOKE_N; i++) { spawnSmoke(i); smAge[i] = Math.random() * smLife[i]; }
 
@@ -1353,16 +1493,18 @@ function stepSmoke(dt) {
     const x = smPos[o], y = smPos[o + 1], z = smPos[o + 2];
     toLocal(x, z, _l); field(_l[0], y, _l[1], S.time, _f); toWorld(_f[0], _f[2], _w);
     const u = smAge[i] / smLife[i];
-    const spread = 0.35 + u;   // smoke slows and billows as it ages
-    smPos[o] = x + _w[0] * vis * dt * (0.55 + 0.25 * (1 - u));
-    smPos[o + 1] = Math.max(0.03, y + (_f[1] * vis * 0.8 + 0.05) * dt);
-    smPos[o + 2] = z + _w[1] * vis * dt * spread;
-    smSize[i] = 0.15 + 0.75 * u;
-    smAlpha[i] = 0.05 * Math.sin(Math.PI * Math.min(1, u * 1.2)) * on;
+    // smoke slows, rises a little and billows outward as it ages
+    smPos[o] = x + _w[0] * vis * dt * (0.5 + 0.3 * (1 - u));
+    smPos[o + 1] = Math.max(0.05, y + (_f[1] * vis * 0.6 + 0.12) * dt);
+    smPos[o + 2] = z + (_w[1] * vis * 0.6 + Math.sign(z || 1) * 0.12) * dt;
+    smRot[i] += smSpin[i] * dt;
+    smSize[i] = 0.25 + 1.2 * Math.sqrt(u);
+    smAlpha[i] = 0.32 * Math.min(1, u * 6) * (1 - u) * (1 - u) * on;
   }
   smokeGeo.attributes.position.needsUpdate = true;
   smokeGeo.attributes.size.needsUpdate = true;
   smokeGeo.attributes.alpha.needsUpdate = true;
+  smokeGeo.attributes.rot.needsUpdate = true;
 }
 
 /* ---------- Vector field ---------- */
@@ -1550,6 +1692,11 @@ function refreshVisibility() {
   $("legend").style.visibility = anyFlow ? "visible" : "hidden";
 }
 
+document.querySelectorAll("[data-style]").forEach((b) => b.addEventListener("click", () => {
+  S.style = b.dataset.style;
+  document.querySelectorAll("[data-style]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  dirty.stream = true; lastHeavy = 0;
+}));
 document.querySelectorAll("[data-tint]").forEach((b) => b.addEventListener("click", () => {
   S.tint = +b.dataset.tint;
   document.querySelectorAll("[data-tint]").forEach((x) => x.setAttribute("aria-pressed", x === b));

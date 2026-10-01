@@ -7,8 +7,8 @@ Serve the folder and open `index.html`, for example with `python3 -m http.server
 ## What it shows
 
 - **Detailed 3D car**: the McLaren 720S LMGT3 EVO model in `mclaren-720s-gt3-evo.glb`. Drag to orbit, use the camera presets, or use the view-heading slider for a full 360° turn.
-- **Airflow**: glowing smoke lines like a wind-tunnel smoke rake, soft wake smoke shed from the tail, wheels and wing tips, fast tracer particles, and velocity-vector slices. The smoke is white by default, or you can colour it by pressure (blue = suction, red = high pressure).
-- **Pressure zones**: a heat map painted on the body that updates in real time.
+- **Airflow**: by default, a few thick white smoke tubes that wrap over the car and break up into billowing wake smoke, like a smoke wand in a real tunnel. Switch to *Dense rake* for a full grid of thin glowing lines. You can also turn on fast tracer particles and velocity-vector slices. The smoke is white by default, or you can colour it by pressure (blue = suction, red = high pressure).
+- **Pressure zones**: a heat map painted on the body that updates in real time. It's off by default so the livery shows.
 - **Controls**: speed (0–300 km/h), yaw (0–20°) and rear wing angle.
 - **Forces**: downforce arrows on each axle, plus drag and side-force arrows. Live numbers show downforce, drag, C<sub>L</sub>, C<sub>D</sub>, L/D, aero balance, drag power and dynamic pressure, plus a downforce/drag vs speed chart.
 - **Feature inspector**: click a part (splitter, dive planes, louvres, diffuser, wing) to fly the camera to it and read how it works.
