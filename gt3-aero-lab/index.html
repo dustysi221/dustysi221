@@ -1050,7 +1050,7 @@ function addHeatOverlay(mat) {
 const WHEELS = {"FL": {"c": [1.2238, 0.3243, 0.8564], "axis": [-0.00073, 0.06617, 0.99781], "r": 0.341}, "FR": {"c": [1.2226, 0.3005, -0.8605], "axis": [-0.00025, -0.03865, 0.99925], "r": 0.339}, "RL": {"c": [-1.4709, 0.3811, 0.851], "axis": [0.0034, 0.06351, 0.99798], "r": 0.353}, "RR": {"c": [-1.4713, 0.3544, -0.8472], "axis": [-0.00084, -0.03471, 0.9994], "r": 0.353}};
 const wheelHubs = [];
 const WHEEL_GHOSTS = isSmall ? 3 : 5;
-const WHEEL_SPIN_SCALE = 0.22;   // fraction of true wheel speed shown on screen
+const ROAD_VIS_SPEED = 12;       // on-screen belt (and tyre tread) speed at 300 km/h, m/s
 function setupSpinningWheels(root) {
   car.updateMatrixWorld(true);
   const carInv = new THREE.Matrix4().copy(car.matrixWorld).invert();
@@ -2208,20 +2208,21 @@ function frame(now) {
 
   // Rolling road + wheels
   const vis = (S.cSpeed / 300) * 7.5;
-  roadTex.offset.y -= vis * dt / 14 * 6 * 0.35;
+  // The belt and the tyres share one speed, as on a real rolling road: the tread moves exactly
+  // with the belt under it, no slip. The scene runs in slow motion (true 250 km/h is ~69 m/s);
+  // ROAD_VIS_SPEED is the on-screen belt speed at 300 km/h.
+  const vRoad = (S.cSpeed / 300) * ROAD_VIS_SPEED;
+  roadTex.offset.y -= vRoad * dt / (14 / 6);   // one texture tile spans 14 / 6 m of belt
   road.rotation.z = Math.PI / 2 + S.cYaw * DEG;
   for (const w of wheelSpin) w.g.rotation.z -= w.dir * vis * dt / 0.345;
-  // Roll the real wheels. True speed (v / r, ~32 turns a second at 250 km/h) is faster than
-  // the screen can show and reads as a frantic smear, so they turn at WHEEL_SPIN_SCALE of it
-  // (~7 turns a second at 250 km/h): clearly fast, still readable as rotation. Forward rolling
-  // is negative rotation about the left-pointing axle. The ghosts spread over the arc swept
-  // during the frame and fade in at higher speeds.
-  const vReal = S.cSpeed / 3.6;
+  // Roll the real wheels with the belt: omega = belt speed / tyre radius, so the tread never
+  // slips against the road (~4.7 turns a second at 250 km/h on screen). Forward rolling is
+  // negative rotation about the left-pointing axle. A light blur fades in near top speed.
   for (const w of wheelHubs) {
-    const omega = vReal / w.r * WHEEL_SPIN_SCALE;
+    const omega = vRoad / w.r;
     w.angle = (w.angle - omega * dt) % (Math.PI * 2);
     w.hub.quaternion.setFromAxisAngle(w.axis, w.angle);
-    const blur = Math.min(1, Math.max(0, (omega - 18) / 40)) * 0.8;
+    const blur = Math.min(1, Math.max(0, (omega - 26) / 30)) * 0.6;
     const sweep = Math.min(omega * Math.max(dt, 1 / 60), 2.2);
     w.ghosts.forEach((g, i) => {
       const k = (i + 1) / (w.ghosts.length + 1);
