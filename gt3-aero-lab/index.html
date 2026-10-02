@@ -252,6 +252,13 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
   .legend { width: 100%; }
   .hint { display: none; }
 }
+/* ---------- Background mode (#bg): just the car and airflow, full-window, no UI ---------- */
+html.bg-mode, html.bg-mode body { height: 100% !important; overflow: hidden; }
+.bg-mode .app { grid-template-columns: 1fr !important; height: 100% !important; }
+.bg-mode .stage { height: 100% !important; min-height: 0 !important; }
+.bg-mode .panel, .bg-mode .stage-head, .bg-mode .hud, .bg-mode .view-bar, .bg-mode #labels,
+.bg-mode .hint, .bg-mode .loading { display: none !important; }
+.bg-mode #gl { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
@@ -429,6 +436,10 @@ const isSmall = window.matchMedia("(max-width: 880px)").matches;
 /* =========================================================
    State
    ========================================================= */
+// Background mode: open the page with #bg (or ?bg) to use it as a website background
+const BG_MODE = /(^|[?&#])bg(\b|$)/.test(location.search + location.hash);
+if (BG_MODE) document.documentElement.classList.add("bg-mode");
+
 const S = {
   speed: 250, yaw: 0, wing: 7,          // targets from sliders
   cSpeed: 250, cYaw: 0, cWing: 7,       // smoothed values that drive the scene
@@ -2152,6 +2163,16 @@ new ResizeObserver(resize).observe(stageEl);
 resize();
 
 setYaw(0);
+if (BG_MODE) {
+  // background: no arrows or labels, a slow cinematic orbit, no mouse/touch capture
+  S.modes.forces = false;
+  S.cine = true;
+  controls.enabled = false;
+  controls.autoRotate = !reduceMotion;
+  controls.autoRotateSpeed = 0.45;
+  const v = VIEWS.cine;
+  camera.position.set(...v.p); controls.target.set(...v.t);
+}
 refreshVisibility();
 loadModel();
 if (camera.aspect < 0.9) camera.position.sub(controls.target).multiplyScalar(1.12).add(controls.target);
