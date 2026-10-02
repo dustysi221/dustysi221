@@ -16,7 +16,7 @@ Serve the folder and open `index.html`, for example with `python3 -m http.server
 
 ## Model notes
 
-This is a teaching model, not CFD. Forces use `F = ½ρv²A·C` with coefficients tuned to typical GT3 figures (C<sub>L</sub> ≈ −1.18, C<sub>D</sub> ≈ 0.365 at 7° wing, A = 1.95 m²). Yaw and wing-angle sensitivities are simplified. The flow field is an analytic approximation. It is built around a signed-distance field baked from the real car mesh (`car-sdf.js`, 4 cm voxels, about 1.6 cm mean surface error), with circulation models for the rear wing and trailing vortices at the wing tips, diffuser edges and dive planes. Smoke tubes are seeded by tracing the flow backwards from target points a few centimetres off the bodywork, so they skim the real surfaces.
+This is a teaching model, not CFD. Forces use `F = ½ρv²A·C` with coefficients tuned to typical GT3 figures (C<sub>L</sub> ≈ −1.18, C<sub>D</sub> ≈ 0.365 at 7° wing, A = 1.95 m²). Yaw and wing-angle sensitivities are simplified. The flow field is an analytic approximation. It is built around a signed-distance field baked from the real car mesh (`car-sdf.js`, 4 cm voxels, about 1.6 cm mean surface error), with circulation models for the rear wing and trailing vortices at the wing tips, diffuser edges and dive planes. Each smoke tube aims at a target point a few centimetres off the bodywork (bonnet, A-pillars, roof, wing mirrors, sidepods, rear wing). Its start point at the inlet is found by tracing forwards and correcting by the miss, so the tubes skim the real surfaces and spread across the car instead of bunching up.
 
 ## Rebuilding the model
 

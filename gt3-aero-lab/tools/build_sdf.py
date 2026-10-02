@@ -6,8 +6,8 @@ wing), which left the smoke floating. This voxelises the actual mesh instead:
 
   * every triangle is sampled densely and its points mark surface voxels
     (this keeps thin parts such as the rear wing and its mounts)
-  * the body is made solid column by column between its lowest and highest surface,
-    leaving out the wing assembly so air can still pass under the wing
+  * the body is made solid column by column, bridging only gaps up to 48 cm, so real
+    open-air gaps (under the mirrors, under the rear wing) stay empty
   * a Euclidean distance transform turns that into signed distance (cm, int8)
 
 Usage: python3 build_sdf.py raw_wing.glb car-sdf.js
@@ -78,14 +78,22 @@ ix, iy, iz = vox(pts)
 ok = (ix >= 0) & (ix < NX) & (iy >= 0) & (iy < NY) & (iz >= 0) & (iz < NZ)
 occ[ix[ok], iy[ok], iz[ok]] = True
 
-# solid body: fill each (x, z) column between its lowest and highest body surface
-body = ok & ~pw
-lo = np.full((NX, NZ), NY, int)
-hi = np.full((NX, NZ), -1, int)
-np.minimum.at(lo, (ix[body], iz[body]), iy[body])
-np.maximum.at(hi, (ix[body], iz[body]), iy[body])
-ys = np.arange(NY)[None, :, None]
-occ |= (ys >= lo[:, None, :]) & (ys <= hi[:, None, :])
+# solid body: in each vertical column, bridge the gaps between body surfaces that are at most
+# MAX_GAP tall (cabin, doors, floor to roof). Bigger gaps are open air and stay empty, such as
+# the ~0.5 m under each wing mirror. The wing assembly is left out so air passes under it.
+MAX_GAP = 12  # voxels = 48 cm (the gap under a mirror is ~52 cm)
+body = np.zeros((NX, NY, NZ), bool)
+sel = ok & ~pw
+body[ix[sel], iy[sel], iz[sel]] = True
+for i in range(NX):
+    for k in range(NZ):
+        ys = np.flatnonzero(body[i, :, k])
+        if len(ys) < 2:
+            continue
+        gaps = np.diff(ys)
+        for y0, gap in zip(ys[:-1], gaps):
+            if 1 < gap <= MAX_GAP:
+                occ[i, y0:y0 + gap, k] = True
 
 d_out = ndimage.distance_transform_edt(~occ) * VOX
 d_in = ndimage.distance_transform_edt(occ) * VOX

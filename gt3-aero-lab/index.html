@@ -616,7 +616,8 @@ function field(x, y, z, t, out) {
       vx -= vn * nx * k; vy -= vn * ny * k; vz -= vn * nz * k;
       // steer stagnating air over / under / around the nose
       const push = -vn * k * 0.55;
-      vy += push * (y > 0.24 ? 1 : -0.6);
+      // over the top, or under the nose, but never down into the road (tyres, sills)
+      vy += push * (y > 0.24 ? 1 : y > 0.12 ? -0.6 : 0.3);
       vz += push * 0.35 * Math.sign(z || 1);
     }
     const tang = 1 - un * un;
@@ -686,6 +687,10 @@ function field(x, y, z, t, out) {
   }
   // Ground
   if (y < 0.03 && vy < 0) vy = 0;
+  // Air always moves on: keep a small downstream component so paths can't stall at
+  // stagnation points (nose, tyre faces) and wander on the spot.
+  const fwd = vx * flow.ux + vz * flow.uz;
+  if (fwd < 0.15) { vx += (0.15 - fwd) * flow.ux; vz += (0.15 - fwd) * flow.uz; }
 
   const sp2 = vx * vx + vy * vy + vz * vz;
   let cp = 1 - sp2;
@@ -1469,13 +1474,13 @@ function cfdMaterial(width, halo) {
         float p = vCp * uSpeedScale; p = p < 0.0 ? p / 1.1 : p / 0.8;
         float fade = vFade * (1.0 - 0.75 * vBrk) * uAmp;
         ${halo ? `
-        float a = exp(-r * r * 3.0) * 0.16;
+        float a = exp(-r * r * 3.0) * 0.1;
         vec3 col = mix(vec3(0.2, 0.5, 1.0), heatc(p), uTint);
         gl_FragColor = vec4(col * a * fade * pulse, 1.0);` : `
         float core = exp(-r * r * 7.0);
         vec3 col = mix(vec3(0.22, 0.52, 1.0), vec3(0.92, 0.97, 1.0), core);
         col = mix(col, heatc(p) * (0.5 + 0.5 * core), uTint);
-        float a = (0.16 + 0.7 * core) * smoothstep(1.0, 0.7, r);
+        float a = (0.14 + 0.6 * core) * smoothstep(1.0, 0.7, r);
         gl_FragColor = vec4(col * a * fade * pulse, 1.0);`}
       }`,
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
@@ -1560,24 +1565,28 @@ const breakPoints = [];
 //   ["top", x, z, clearance]    above the surface at (x, z)
 //   ["side", x, y, side, clear] beside the body at height y (side = +1 left, -1 right)
 //   ["under", x, z]             halfway between the floor and the road
-//   ["free", x, y, z]           a fixed point (relative to the wing for wing targets)
+//   ["free", dx, dy, dz, ref]   a point relative to the rear wing ("wing") or its tip ("tip")
+//   ["abs", x, y, z]            a fixed point, e.g. beside a wing mirror
 const CLEAN_TARGETS = [
   ["top", 1.45, -0.16, 0.055], ["top", 1.45, 0.16, 0.055], ["top", -0.1, 0, 0.055],
   ["top", 1.15, -0.78, 0.06], ["top", 1.15, 0.78, 0.06],
-  ["side", 0.0, 0.45, -1, 0.06], ["side", 0.0, 0.45, 1, 0.06], ["under", 0.0, 0],
+  ["side", 0.0, 0.45, -1, 0.06], ["side", 0.0, 0.45, 1, 0.06], ["top", 0.6, 0, 0.06],
 ];
+// One tube per path, spread across the car. Only one runs down the centre line, so tubes never
+// stack into a single over-bright band.
 const GLOW_TARGETS = [
-  ["under", 0.0, -0.55], ["under", 0.0, -0.18], ["under", 0.0, 0.18], ["under", 0.0, 0.55],   // underfloor
   ["side", 2.0, 0.15, -1, 0.05], ["side", 2.0, 0.15, 1, 0.05],                                 // splitter edges
   ["side", 1.85, 0.34, -1, 0.06], ["side", 1.85, 0.34, 1, 0.06],                               // dive-plane vortex
-  ["side", 0.0, 0.3, -1, 0.05], ["side", 0.0, 0.3, 1, 0.05], ["side", 0.0, 0.58, -1, 0.05], ["side", 0.0, 0.58, 1, 0.05], // sidepods
-  ["top", 1.2, -0.78, 0.05], ["top", 1.2, 0.78, 0.05], ["top", -1.0, -0.8, 0.05], ["top", -1.0, 0.8, 0.05],               // front and rear haunches
-  ["top", 1.5, -0.3, 0.045], ["top", 1.5, 0, 0.045], ["top", 1.5, 0.3, 0.045],                // nose and bonnet
-  ["top", 0.6, -0.45, 0.05], ["top", 0.6, 0.45, 0.05],                                         // A-pillars
-  ["top", -0.1, -0.22, 0.045], ["top", -0.1, 0, 0.045], ["top", -0.1, 0.22, 0.045],           // roof
-  ["top", -1.6, -0.3, 0.05], ["top", -1.6, 0.3, 0.05],                                         // engine cover, under the wing
+  ["side", 0.0, 0.3, -1, 0.06], ["side", 0.0, 0.3, 1, 0.06], ["side", -0.3, 0.6, -1, 0.06], ["side", -0.3, 0.6, 1, 0.06], // sidepods
+  ["abs", 0.59, 0.96, -0.92], ["abs", 0.59, 0.96, 0.92],                                       // over the wing mirrors
+  ["abs", 0.59, 0.82, -1.13], ["abs", 0.59, 0.82, 1.13],                                       // outboard of the mirrors
+  ["top", 1.2, -0.78, 0.07], ["top", 1.2, 0.78, 0.07], ["top", -1.0, -0.8, 0.07], ["top", -1.0, 0.8, 0.07],               // front and rear haunches
+  ["top", 1.5, -0.32, 0.07], ["top", 1.5, 0.32, 0.07],                                         // bonnet
+  ["top", 0.6, -0.45, 0.07], ["top", 0.6, 0.45, 0.07],                                         // A-pillars
+  ["top", -0.1, 0, 0.07],                                                                      // roof centre line
+  ["top", -1.6, -0.3, 0.07], ["top", -1.6, 0.3, 0.07],                                         // engine cover, under the wing
   ["free", 0.05, 0.08, -0.4, "wing"], ["free", 0.05, 0.08, 0.4, "wing"],                       // over the wing
-  ["free", 0.0, -0.1, -0.55, "wing"], ["free", 0.0, -0.1, 0.55, "wing"],                       // under the wing
+  ["free", 0.0, -0.1, -0.6, "wing"], ["free", 0.0, -0.1, 0.6, "wing"],                         // under the wing
   ["free", -0.25, 0.03, -0.06, "tip"], ["free", -0.25, 0.03, 0.06, "tip"],                     // into the wing-tip vortices
 ];
 // Resolve a target to a car-frame point using the distance field
@@ -1598,40 +1607,63 @@ function targetPoint(t) {
     let y = 0.01; while (y < 0.4 && carSD(x, y, z) > 0) y += 0.005;
     return [x, Math.max(0.025, y * 0.5), z];
   }
+  if (kind === "abs") return [t[1], t[2], t[3]];
   const [, dx, dy, dz, ref] = t;
   if (ref === "tip") return [WING.x + dx, WING.y + dy, Math.sign(dz) * WING.span + dz];
   return [WING.x + dx, WING.y + dy, dz];
 }
-// Trace backwards from a car-frame point to the inlet (world x ~ 9); returns world [y, z, x].
-// Paths that skim the nose pass through near-still air at the stagnation point, where tracing
-// backwards can stall; those retry a little further off the surface.
-function seedFromTarget(t, tries = 0) {
-  const p = targetPoint(t);
-  toWorld(p[0], p[2], _w);
-  let x = _w[0], y = p[1], z = _w[1];
+// Find where a tube must start at the inlet (world x = 9) to pass through a target point.
+// Tracing backwards from the target doesn't work: near the nose the flow spreads out, so traced
+// backwards every path collapses onto the stagnation line and the tubes bunch up. Instead, trace
+// forwards, see where the tube crosses the target's station, and nudge the start point by the
+// miss. Results are cached per target, so a rebuild after a slider move only needs to correct.
+const seedCache = new Map();
+function crossAt(x, y, z, tx) {
   const h = 0.03;
-  for (let n = 0; n < 900 && x < 9; n++) {
+  for (let n = 0; n < 700; n++) {
     toLocal(x, z, _l); field(_l[0], y, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
     let sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
-    const mx = x - _w[0] / sp * h * 0.5, my = y - _f[1] / sp * h * 0.5, mz = z - _w[1] / sp * h * 0.5;
+    const mx = x + _w[0] / sp * h * 0.5, my = Math.max(0.02, y + _f[1] / sp * h * 0.5), mz = z + _w[1] / sp * h * 0.5;
     toLocal(mx, mz, _l); field(_l[0], my, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
     sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
-    x -= _w[0] / sp * h; y = Math.max(0.02, y - _f[1] / sp * h); z -= _w[1] / sp * h;
+    const nx = x + _w[0] / sp * h, ny = Math.max(0.02, y + _f[1] / sp * h), nz = z + _w[1] / sp * h;
+    if (nx <= tx) { const u = (x - tx) / ((x - nx) || 1e-6); return [y + (ny - y) * u, z + (nz - z) * u]; }
+    x = nx; y = ny; z = nz;
   }
-  if (x >= 9) return [y, z, x];
-  if (x > XF + 0.8) return [y, z, 9];          // already in undisturbed air: carry straight upstream
-  if (tries < 3 && (t[0] === "top" || t[0] === "side")) {
-    const u = t.slice(); u[u.length - 1] += 0.025;
-    return seedFromTarget(u, tries + 1);
+  return null;
+}
+function fitSeed(t, key) {
+  const p = targetPoint(t);
+  toWorld(p[0], p[2], _w);
+  const tx = _w[0], ty = p[1], tz = _w[1];
+  let s = seedCache.get(key);
+  const iters = s ? 4 : 18;
+  if (!s) s = [ty, tz];
+  const miss = (q) => { const hit = crossAt(9, q[0], q[1], tx); return hit ? [ty - hit[0], tz - hit[1]] : null; };
+  let e = miss(s), gain = 0.8;
+  for (let it = 0; it < iters && e; it++) {
+    const err = Math.hypot(e[0], e[1]);
+    if (err < 0.004) break;
+    // damped step: near the nose a small change flips air over or under the car, so back off
+    // whenever a step makes the miss worse
+    let stepped = false;
+    for (let k = 0; k < 5 && !stepped; k++) {
+      const q = [Math.min(2.5, Math.max(0.02, s[0] + gain * e[0])), s[1] + gain * e[1]];
+      const e2 = miss(q);
+      if (e2 && Math.hypot(e2[0], e2[1]) < err) { s = q; e = e2; stepped = true; gain = Math.min(1, gain * 1.3); }
+      else gain *= 0.4;
+    }
+    if (!stepped) break;
   }
-  return [y, z, 9];
+  seedCache.set(key, s);
+  return [s[0], s[1], 9];
 }
 function buildStreamlines() {
   const clean = S.style !== "dense", glow = S.style === "glow";
   const pos = [], tang = [], side = [], arc = [], cps = [], fade = [], brk = [], idx = [];
   let seeds = [];
   if (clean) {
-    seeds = (glow ? GLOW_TARGETS : CLEAN_TARGETS).map(seedFromTarget);
+    seeds = (glow ? GLOW_TARGETS : CLEAN_TARGETS).map((t, i) => fitSeed(t, S.style + i));
   } else {
     const ys = isSmall ? [0.08, 0.3, 0.52, 0.74, 0.94, 1.12, 1.3] : [0.06, 0.2, 0.34, 0.48, 0.62, 0.76, 0.9, 1.04, 1.16, 1.28, 1.42];
     const zs = isSmall ? [-0.9, -0.45, 0, 0.45, 0.9] : [-1.15, -0.85, -0.55, -0.28, 0, 0.28, 0.55, 0.85, 1.15];
