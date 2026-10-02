@@ -1049,6 +1049,7 @@ function addHeatOverlay(mat) {
    brake disc (true to under a millimetre, and including the car's camber). The brake calipers stay fixed, as on the real car. */
 const WHEELS = {"FL": {"c": [1.2238, 0.3243, 0.8564], "axis": [-0.00073, 0.06617, 0.99781], "r": 0.341}, "FR": {"c": [1.2226, 0.3005, -0.8605], "axis": [-0.00025, -0.03865, 0.99925], "r": 0.339}, "RL": {"c": [-1.4709, 0.3811, 0.851], "axis": [0.0034, 0.06351, 0.99798], "r": 0.353}, "RR": {"c": [-1.4713, 0.3544, -0.8472], "axis": [-0.00084, -0.03471, 0.9994], "r": 0.353}};
 const wheelHubs = [];
+const WHEEL_GHOSTS = isSmall ? 3 : 5;
 function setupSpinningWheels(root) {
   car.updateMatrixWorld(true);
   const carInv = new THREE.Matrix4().copy(car.matrixWorld).invert();
@@ -1067,7 +1068,26 @@ function setupSpinningWheels(root) {
       o.matrix.copy(toHub).multiply(rel);
       hub.add(o);
     }
-    wheelHubs.push({ hub, axis: new THREE.Vector3(...W.axis).normalize(), r: W.r, angle: 0 });
+    // Motion blur: faded copies of the same wheel parts, trailing at slightly earlier angles.
+    // At racing speed a wheel turns ~30 times a second, faster than the screen redraws, so
+    // without this it would strobe or appear to run backwards (the wagon-wheel effect).
+    const ghosts = [];
+    for (let i = 1; i <= WHEEL_GHOSTS; i++) {
+      const g = new THREE.Group();
+      g.position.copy(hub.position);
+      for (const o of parts) {
+        const m = o.material.clone();
+        m.transparent = true; m.depthWrite = false; m.opacity = 0;
+        addHeatOverlay(m);
+        const c = new THREE.Mesh(o.geometry, m);
+        c.matrixAutoUpdate = false; c.matrix.copy(o.matrix); c.renderOrder = 2;
+        g.add(c);
+      }
+      g.visible = false;
+      car.add(g);
+      ghosts.push(g);
+    }
+    wheelHubs.push({ hub, ghosts, axis: new THREE.Vector3(...W.axis).normalize(), r: W.r, angle: 0 });
   }
 }
 
@@ -1227,7 +1247,8 @@ function attrScale(a) {
 // Pressure colours read best under flatter light, so dim the studio reflections as they fade in
 function setHeatBlend(b) {
   HEATU.uHeatBlend.value = b;
-  if (model) model.traverse((o) => { if (o.isMesh) o.material.envMapIntensity = 0.55 - 0.4 * b; });
+  // the car group also holds the wheel hubs and wing hinge that were lifted out of the model
+  if (model) car.traverse((o) => { if (o.isMesh && o.material.onBeforeCompile && o.parent !== proc && !proc.children.includes(o)) o.material.envMapIntensity = 0.55 - 0.4 * b; });
 }
 function updateSurfaceCp() {
   car.updateMatrixWorld(true);
@@ -2189,11 +2210,24 @@ function frame(now) {
   roadTex.offset.y -= vis * dt / 14 * 6 * 0.35;
   road.rotation.z = Math.PI / 2 + S.cYaw * DEG;
   for (const w of wheelSpin) w.g.rotation.z -= w.dir * vis * dt / 0.345;
-  // roll the real wheels at the same speed as the rolling road (forward rolling = negative
-  // rotation about the left-pointing axle)
+  // Roll the real wheels at their true speed: omega = v / r (about 200 rad/s, ~32 turns a
+  // second, at 250 km/h). Forward rolling is negative rotation about the left-pointing axle.
+  // The ghosts spread over the arc swept during the frame and fade in with speed.
+  const vReal = S.cSpeed / 3.6;
   for (const w of wheelHubs) {
-    w.angle -= vis * dt / w.r;
+    const omega = vReal / w.r;
+    w.angle = (w.angle - omega * dt) % (Math.PI * 2);
     w.hub.quaternion.setFromAxisAngle(w.axis, w.angle);
+    const blur = Math.min(1, Math.max(0, (omega - 10) / 50));
+    const sweep = Math.min(omega * Math.max(dt, 1 / 60), 2.2);
+    w.ghosts.forEach((g, i) => {
+      const k = (i + 1) / (w.ghosts.length + 1);
+      g.visible = blur > 0.01;
+      if (!g.visible) return;
+      g.quaternion.setFromAxisAngle(w.axis, w.angle + sweep * k);
+      const op = blur * 0.55 * (1 - k * 0.6);
+      for (const c of g.children) c.material.opacity = op;
+    });
   }
 
   updateArrows(A);
