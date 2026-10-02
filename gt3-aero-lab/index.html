@@ -1097,6 +1097,8 @@ function setupMovableWing(root) {
       }
       return;
     }
+    // only the wing's own surface (mat_94) moves; bolts and bracket plates (mat_16) stay on the mounts
+    if (!/mat_94/.test(o.material.name)) return;
     const rel = carInv.clone().multiply(o.matrixWorld);
     const P = o.geometry.attributes.position, sc = attrScale(P), I = o.geometry.index.array;
     const keep = [], move = [];
