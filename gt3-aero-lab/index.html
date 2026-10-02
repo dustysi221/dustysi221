@@ -405,6 +405,7 @@ input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/environments/RoomEnvironment.js"></script>
+<script src="car-sdf.js"></script>
 <script>
 (() => {
 "use strict";
@@ -512,7 +513,7 @@ let CAB_XF = XF - CT0 * LEN, CAB_XR = XF - CT1 * LEN;
 let AXLE_F = 1.45, AXLE_R = -1.3;
 
 // Outline measured from the detailed 3D model (tools/usdz_to_glb.py), nose -> tail
-const MEASURED = {"xf":2.281,"xr":-2.305,"w":[0.569,0.758,0.905,1.019,1.088,1.114,1.115,1.11,1.105,1.102,1.099,1.094,1.088,1.082,1.076,1.071,1.06,1.028,1.065,1.038,0.988,0.978,0.936,0.933,0.969,0.983,0.983,0.991,1.001,0.999,1.017,1.042,1.05,1.074,1.079,1.084,1.093,1.099,1.105,1.108,1.11,1.106,1.11,1.088,1.067,0.862,0.731,1.034],"yb":[0.04,0.031,0.03,0.029,0.032,0.033,0.046,0.039,0.043,0.032,0.042,0.044,0.046,0.057,0.055,0.041,0.05,0.098,0.094,0.103,0.083,0.084,0.139,0.15,0.11,0.095,0.104,0.08,0.083,0.104,0.159,0.088,0.059,0.063,0.064,0.064,0.065,0.042,0.037,0.047,0.048,0.082,0.125,0.198,0.219,0.218,0.235,0.094],"shoulder":[0.287,0.38,0.418,0.493,0.564,0.606,0.653,0.685,0.711,0.715,0.726,0.724,0.724,0.719,0.734,0.789,0.845,0.883,0.93,0.982,1.003,1.01,1.011,1.013,1.013,1.002,0.976,0.967,0.964,0.918,0.916,0.876,0.885,0.884,0.866,0.867,0.865,0.86,0.845,0.845,0.851,0.844,0.821,0.906,0.884,0.786,0.607,0.923],"roof":[0.384,0.433,0.49,0.523,0.554,0.586,0.603,0.603,0.628,0.676,0.71,0.728,0.742,0.785,0.774,0.868,0.941,0.978,1.016,1.065,1.109,1.138,1.121,1.201,1.204,1.121,1.132,1.224,1.345,1.345,1.049,1.035,1.001,0.97,0.952,0.932,0.909,0.889,0.863,0.832,0.831,0.807,0.783,0.759,0.741,0.745,0.755,0.608],"roofW":[0.355,0.396,0.531,0.65,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.268,0.517,0.498,0.409,0.509,0.475,0.415,0.346,0.381,0.445,0.494,0.5,0.487,0.472,0.472,0.469,0.542,0.463,0.545,0.454,0.438,0.469,0.402,0.0,0.0,0.0,0.0,0.0,0.0,0.501,1.003,1.016,1.012,0.812,1.03],"height":1.201};
+const MEASURED = {"xf":2.283,"xr":-2.352,"w":[0.509,0.763,0.897,0.959,1.019,1.021,1.022,1.023,1.025,1.03,1.032,1.032,1.029,1.026,1.023,1.021,1.0,1.039,1.05,0.983,0.977,0.889,0.915,0.904,0.973,0.982,0.984,0.984,0.985,0.978,0.99,0.998,1.006,1.019,1.024,1.024,1.025,1.027,1.029,1.029,1.026,1.021,1.019,1.002,0.972,0.738,0.626,0.927],"yb":[0.047,0.033,0.035,0.036,0.028,0.042,0.045,0.042,0.057,0.032,0.045,0.049,0.052,0.057,0.061,0.05,0.122,0.108,0.106,0.115,0.09,0.11,0.157,0.16,0.097,0.109,0.088,0.086,0.114,0.164,0.19,0.07,0.071,0.073,0.069,0.075,0.066,0.048,0.047,0.04,0.062,0.125,0.208,0.23,0.231,0.261,0.115,0.894],"shoulder":[0.073,0.395,0.422,0.504,0.558,0.598,0.658,0.693,0.705,0.722,0.729,0.731,0.73,0.733,0.746,0.795,0.848,0.913,0.945,1.007,1.008,1.011,1.016,1.017,1.015,1.0,0.997,0.96,0.96,0.91,0.895,0.877,0.884,0.884,0.871,0.875,0.874,0.869,0.854,0.855,0.862,0.854,0.811,0.917,0.892,0.783,0.568,0.933],"roof":[0.387,0.441,0.486,0.532,0.563,0.595,0.594,0.286,0.638,0.684,0.716,0.737,0.751,0.795,0.751,0.879,0.948,0.987,1.022,1.076,1.142,1.145,1.131,1.212,1.214,1.13,1.145,1.234,1.301,1.076,1.059,1.038,1.011,0.979,0.962,0.918,0.895,0.891,0.848,0.845,0.823,0.797,0.79,0.768,0.749,0.766,0.765,0.0],"roofW":[0.277,0.048,0.587,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.339,0.531,0.54,0.448,0.352,0.5,0.368,0.386,0.418,0.498,0.496,0.498,0.495,0.458,0.512,0.469,0.52,0.515,0.516,0.454,0.411,0.425,0.302,0.0,0.0,0.0,0.0,0.0,0.0,0.427,0.926,0.929,0.923,0.428,0.931],"height":1.211,"axles":{"front":1.224,"rear":-1.471}};
 function useMeasuredOutline() {
   const M = MEASURED, n = M.w.length;
   const ts = M.w.map((_, i) => i / (n - 1));
@@ -528,8 +529,9 @@ function useMeasuredOutline() {
   CT0 = 0; CT1 = 1; CAB_XF = XF; CAB_XR = XR;
   cabYt = makeTable(ts, roof.map((r, i) => (r > top[i] + 0.04 ? r : 0)), 400, 6);
   cabW = makeTable(ts, rw.map((v) => Math.min(0.6, Math.max(0.32, v > 0.25 ? v : 0.45))), 400, 6);
-  AXLE_F = 1.22; AXLE_R = -1.43;
-  WING.x = -2.15; WING.y = 1.1; WING.span = 0.95;
+  AXLE_F = M.axles.front; AXLE_R = M.axles.rear;
+  WING.x = -2.18; WING.y = 1.11; WING.span = 0.91;   // main plane centre and endplate inner faces
+  USE_GRID = !!SDF_GRID;
   placeVortices();
 }
 
@@ -546,7 +548,30 @@ function loftSD(x, y, z, sec, x0, x1) {
   if (dx > 0) return dc > 0 ? Math.hypot(dc, dx) : dx;
   return Math.max(dc, dx);
 }
+// Signed-distance grid baked from the real mesh (tools/build_sdf.py, car-sdf.js). Used once the
+// detailed model is on screen; the lofts above remain for the simplified stand-in car.
+const SDF_GRID = (() => {
+  const G = window.CAR_SDF;
+  if (!G) return null;
+  const bin = atob(G.data), q = new Int8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) q[i] = (bin.charCodeAt(i) << 24) >> 24;
+  return { q, o: G.origin, s: G.step, nx: G.dims[0], ny: G.dims[1], nz: G.dims[2] };
+})();
+let USE_GRID = false;
+function gridSD(x, y, z) {
+  const g = SDF_GRID;
+  let fx = (x - g.o[0]) / g.s, fy = (y - g.o[1]) / g.s, fz = (z - g.o[2]) / g.s;
+  // outside the grid: clamp to its edge and add the distance travelled beyond it
+  const cx = Math.min(g.nx - 1.001, Math.max(0, fx)), cy = Math.min(g.ny - 1.001, Math.max(0, fy)), cz = Math.min(g.nz - 1.001, Math.max(0, fz));
+  const extra = Math.hypot(fx - cx, fy - cy, fz - cz) * g.s;
+  const i = cx | 0, j = cy | 0, k = cz | 0, u = cx - i, v = cy - j, w = cz - k;
+  const NZ = g.nz, NYZ = g.ny * NZ, b = i * NYZ + j * NZ + k, q = g.q;
+  const c00 = q[b] * (1 - w) + q[b + 1] * w, c01 = q[b + NZ] * (1 - w) + q[b + NZ + 1] * w;
+  const c10 = q[b + NYZ] * (1 - w) + q[b + NYZ + 1] * w, c11 = q[b + NYZ + NZ] * (1 - w) + q[b + NYZ + NZ + 1] * w;
+  return ((c00 * (1 - v) + c01 * v) * (1 - u) + (c10 * (1 - v) + c11 * v) * u) * 0.01 + extra;
+}
 function carSD(x, y, z) {
+  if (USE_GRID) return gridSD(x, y, z);
   const b = loftSD(x, y, z, bodySec, XF, XR);
   if (y < 0.7 && Math.abs(x) < 3) return b;
   return Math.min(b, loftSD(x, y, z, cabSec, CAB_XF, CAB_XR));
@@ -561,7 +586,7 @@ const VORTICES = [];
 function placeVortices() {
   VORTICES.length = 0;
   VORTICES.push({ x0: WING.x + 0.1, y: WING.y - 0.05, z: WING.span, g: 0.085, rc2: 0.012, len: 3.5, sense: 1, wing: true }); // wing tips
-  VORTICES.push({ x0: XR + 0.35, y: 0.17, z: 0.62, g: 0.05, rc2: 0.01, len: 2.6, sense: -1 });                           // diffuser edges
+  VORTICES.push({ x0: XR + 0.35, y: 0.17, z: 0.62, g: 0.05, rc2: 0.01, len: 2.6, sense: 1 });                            // diffuser edges: outside air rolls down and in under the floor
   VORTICES.push({ x0: XF - 0.25, y: 0.3, z: 1.0, g: 0.03, rc2: 0.008, len: 2.2, sense: 1 });                              // dive planes
 }
 placeVortices();
@@ -595,7 +620,9 @@ function field(x, y, z, t, out) {
       vz += push * 0.35 * Math.sign(z || 1);
     }
     const tang = 1 - un * un;
-    const boost = 1 + 0.42 * tang * Math.exp(-dp / 0.32) * (ny > -0.4 ? 1 : 0.6);
+    // around the rear wing its own circulation (below) sets the speeds, not this generic speed-up
+    const nearWing = x < WING.x + 0.4 && x > WING.x - 0.45 && y > WING.y - 0.3 && Math.abs(z) < WING.span + 0.05;
+    const boost = nearWing ? 1 : 1 + 0.42 * tang * Math.exp(-dp / 0.32) * (ny > -0.4 ? 1 : 0.6);
     vx *= boost; vy *= boost; vz *= boost;
     if (d < 0) { const p = -d * 9; vx += nx * p; vy += ny * p; vz += nz * p; }
   }
@@ -605,7 +632,7 @@ function field(x, y, z, t, out) {
     const s = bodySec(x);
     const yb = s.yc - s.hh;
     if (y < yb + 0.02 && Math.abs(z) < s.w * 0.9) {
-      const g = 1.28 + 0.22 * flow.load;
+      const g = 1.12 + 0.1 * flow.load;   // floor venturi: Cp around -1 to -1.4, like a real GT3 floor
       vx *= g; vz *= g;
     }
   }
@@ -621,8 +648,8 @@ function field(x, y, z, t, out) {
     const az = Math.abs(z);
     const sw = az < WING.span ? 1 : Math.max(0, 1 - (az - WING.span) / 0.25);
     if (sw > 0) {
-      const r2 = dx * dx + dy * dy + 0.06;
-      const Gm = 0.07 * L * sw;
+      const r2 = dx * dx + dy * dy + 0.02;
+      const Gm = 0.12 * L * sw;          // bound vortex: slower air (pressure) on top, faster (suction) underneath
       vx += Gm * dy / r2;
       vy += -Gm * dx / r2;
     }
@@ -1080,7 +1107,7 @@ function buildWheelBlur(root) {
    the hinge axis through both pivot bolts. Swan necks, their cheeks and the pivot bolts stay put. */
 const WING_REF_DEG = 7;      // the angle the model was built at
 const WING_VIS_GAIN = 2;     // drawn at 2x so a few degrees is easy to see
-const WING_HINGE = { origin: [-2.1544, 1.1149, -0.3077], axis: [0.05316, 0.01462, 0.99848] };
+const WING_HINGE = { origin: [-2.1343, 1.1244, -0.4154], axis: [0.00056, 0.01462, 0.99989] };
 const modelWingPivot = new THREE.Group();
 const wingAxis = new THREE.Vector3(...WING_HINGE.axis).normalize();
 let modelWingReady = false;
@@ -1371,7 +1398,7 @@ const RIB_VERT = `
     vec3 t = normalize((modelViewMatrix * vec4(tang, 0.0)).xyz + 1e-5);
     vec3 n = normalize(cross(t, normalize(mv.xyz)) + 1e-5);
     mv.xyz += n * side * uWidth * (1.0 + uSpread * brk);
-    mv.xyz *= 0.993;   // sit a hair in front of the body so tubes skimming it stay visible
+    mv.xyz *= 0.997;   // sit a hair in front of the body so tubes skimming it stay visible
     vSide = side; vArc = arc; vCp = cp; vFade = fade; vBrk = brk;
     gl_Position = projectionMatrix * mv;
   }`;
@@ -1490,7 +1517,7 @@ function tracePath(x, y, z, h, maxN) {
 
 // Smooth a traced path (Gaussian-ish passes), then nudge any point that sank into the body back out.
 // Keeps clean tubes as calm arcs instead of picking up every ripple in the analytic field.
-function smoothPath(pts, passes) {
+function smoothPath(pts, passes, clear) {
   const n = pts.length / 5;
   const tmp = new Float32Array(n * 3);
   for (let p = 0; p < passes; p++) {
@@ -1512,11 +1539,11 @@ function smoothPath(pts, passes) {
     toLocal(pts[o], pts[o + 2], _l);
     const lx = _l[0], ly = pts[o + 1], lz = _l[1];
     const d = carSD(lx, ly, lz);
-    if (d < 0.03) {
+    if (d < clear) {
       let nx = carSD(lx + h, ly, lz) - carSD(lx - h, ly, lz);
       let ny = carSD(lx, ly + h, lz) - carSD(lx, ly - h, lz);
       let nz = carSD(lx, ly, lz + h) - carSD(lx, ly, lz - h);
-      const nl = Math.hypot(nx, ny, nz) || 1, m = (0.03 - d) / nl;
+      const nl = Math.hypot(nx, ny, nz) || 1, m = (clear - d) / nl;
       toWorld(nx * m, nz * m, _w);
       pts[o] += _w[0]; pts[o + 1] = Math.max(0.02, ly + ny * m); pts[o + 2] += _w[1];
     }
@@ -1527,27 +1554,84 @@ function smoothPath(pts, passes) {
 
 // Where each clean tube starts breaking up; the wake smoke is shed from these points
 const breakPoints = [];
-// Seeds for the clean style, as [height, offset across the car]. Chosen to show the nose,
-// bonnet and roof, the splitter/underfloor, the flanks, and the rear wing.
-const CLEAN_SEEDS = [[0.36, -0.42], [0.44, -0.12], [0.44, 0.16], [0.36, 0.46], [0.62, -0.22], [0.62, 0.26], [0.16, -0.62], [0.16, 0.6]];
-// Seeds for the CFD glow style: every aero zone gets lines, including ones aimed just off the
-// vortex cores so they wind into visible spirals.
-const GLOW_SEEDS = [
-  [0.07, -0.55], [0.07, -0.18], [0.07, 0.18], [0.07, 0.55],          // underflow via the splitter
-  [0.16, -0.88], [0.16, 0.88],                                       // splitter edges
-  [0.3, -1.08], [0.3, 1.08], [0.5, -1.06], [0.5, 1.06],              // dive-plane vortex + sidepods
-  [0.72, -0.98], [0.72, 0.98],                                       // shoulders
-  [0.4, -0.32], [0.46, 0], [0.4, 0.32], [0.62, -0.16], [0.62, 0.16], // nose, bonnet, roof
-  [0.86, 0],
-  [0.98, -0.84], [0.98, 0.84], [1.12, -0.92], [1.12, 0.92],          // into the wing-tip vortices
-  [1.02, -0.45], [1.02, 0.45], [1.25, -0.2], [1.25, 0.2],            // over the roof onto the wing
+// Tubes are seeded by target: each one names a point just off the real bodywork (or a feature
+// such as the wing tip), and its seed is found by tracing the flow backwards from there. That
+// guarantees the tube actually skims the car where it should, instead of floating above it.
+//   ["top", x, z, clearance]    above the surface at (x, z)
+//   ["side", x, y, side, clear] beside the body at height y (side = +1 left, -1 right)
+//   ["under", x, z]             halfway between the floor and the road
+//   ["free", x, y, z]           a fixed point (relative to the wing for wing targets)
+const CLEAN_TARGETS = [
+  ["top", 1.45, -0.16, 0.055], ["top", 1.45, 0.16, 0.055], ["top", -0.1, 0, 0.055],
+  ["top", 1.15, -0.78, 0.06], ["top", 1.15, 0.78, 0.06],
+  ["side", 0.0, 0.45, -1, 0.06], ["side", 0.0, 0.45, 1, 0.06], ["under", 0.0, 0],
 ];
+const GLOW_TARGETS = [
+  ["under", 0.0, -0.55], ["under", 0.0, -0.18], ["under", 0.0, 0.18], ["under", 0.0, 0.55],   // underfloor
+  ["side", 2.0, 0.15, -1, 0.05], ["side", 2.0, 0.15, 1, 0.05],                                 // splitter edges
+  ["side", 1.85, 0.34, -1, 0.06], ["side", 1.85, 0.34, 1, 0.06],                               // dive-plane vortex
+  ["side", 0.0, 0.3, -1, 0.05], ["side", 0.0, 0.3, 1, 0.05], ["side", 0.0, 0.58, -1, 0.05], ["side", 0.0, 0.58, 1, 0.05], // sidepods
+  ["top", 1.2, -0.78, 0.05], ["top", 1.2, 0.78, 0.05], ["top", -1.0, -0.8, 0.05], ["top", -1.0, 0.8, 0.05],               // front and rear haunches
+  ["top", 1.5, -0.3, 0.045], ["top", 1.5, 0, 0.045], ["top", 1.5, 0.3, 0.045],                // nose and bonnet
+  ["top", 0.6, -0.45, 0.05], ["top", 0.6, 0.45, 0.05],                                         // A-pillars
+  ["top", -0.1, -0.22, 0.045], ["top", -0.1, 0, 0.045], ["top", -0.1, 0.22, 0.045],           // roof
+  ["top", -1.6, -0.3, 0.05], ["top", -1.6, 0.3, 0.05],                                         // engine cover, under the wing
+  ["free", 0.05, 0.08, -0.4, "wing"], ["free", 0.05, 0.08, 0.4, "wing"],                       // over the wing
+  ["free", 0.0, -0.1, -0.55, "wing"], ["free", 0.0, -0.1, 0.55, "wing"],                       // under the wing
+  ["free", -0.25, 0.03, -0.06, "tip"], ["free", -0.25, 0.03, 0.06, "tip"],                     // into the wing-tip vortices
+];
+// Resolve a target to a car-frame point using the distance field
+function targetPoint(t) {
+  const [kind] = t;
+  if (kind === "top") {
+    const [, x, z, c] = t;
+    for (let y = 1.6; y > 0; y -= 0.005) if (carSD(x, y, z) <= c) return [x, y, z];
+    return [x, 0.5, z];
+  }
+  if (kind === "side") {
+    const [, x, y, sd, c] = t;
+    for (let a = 1.6; a > 0; a -= 0.005) if (carSD(x, y, sd * a) <= c) return [x, y, sd * a];
+    return [x, y, sd * 1.1];
+  }
+  if (kind === "under") {
+    const [, x, z] = t;
+    let y = 0.01; while (y < 0.4 && carSD(x, y, z) > 0) y += 0.005;
+    return [x, Math.max(0.025, y * 0.5), z];
+  }
+  const [, dx, dy, dz, ref] = t;
+  if (ref === "tip") return [WING.x + dx, WING.y + dy, Math.sign(dz) * WING.span + dz];
+  return [WING.x + dx, WING.y + dy, dz];
+}
+// Trace backwards from a car-frame point to the inlet (world x ~ 9); returns world [y, z, x].
+// Paths that skim the nose pass through near-still air at the stagnation point, where tracing
+// backwards can stall; those retry a little further off the surface.
+function seedFromTarget(t, tries = 0) {
+  const p = targetPoint(t);
+  toWorld(p[0], p[2], _w);
+  let x = _w[0], y = p[1], z = _w[1];
+  const h = 0.03;
+  for (let n = 0; n < 900 && x < 9; n++) {
+    toLocal(x, z, _l); field(_l[0], y, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
+    let sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
+    const mx = x - _w[0] / sp * h * 0.5, my = y - _f[1] / sp * h * 0.5, mz = z - _w[1] / sp * h * 0.5;
+    toLocal(mx, mz, _l); field(_l[0], my, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
+    sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
+    x -= _w[0] / sp * h; y = Math.max(0.02, y - _f[1] / sp * h); z -= _w[1] / sp * h;
+  }
+  if (x >= 9) return [y, z, x];
+  if (x > XF + 0.8) return [y, z, 9];          // already in undisturbed air: carry straight upstream
+  if (tries < 3 && (t[0] === "top" || t[0] === "side")) {
+    const u = t.slice(); u[u.length - 1] += 0.025;
+    return seedFromTarget(u, tries + 1);
+  }
+  return [y, z, 9];
+}
 function buildStreamlines() {
   const clean = S.style !== "dense", glow = S.style === "glow";
   const pos = [], tang = [], side = [], arc = [], cps = [], fade = [], brk = [], idx = [];
   let seeds = [];
   if (clean) {
-    seeds = glow ? GLOW_SEEDS : CLEAN_SEEDS;
+    seeds = (glow ? GLOW_TARGETS : CLEAN_TARGETS).map(seedFromTarget);
   } else {
     const ys = isSmall ? [0.08, 0.3, 0.52, 0.74, 0.94, 1.12, 1.3] : [0.06, 0.2, 0.34, 0.48, 0.62, 0.76, 0.9, 1.04, 1.16, 1.28, 1.42];
     const zs = isSmall ? [-0.9, -0.45, 0, 0.45, 0.9] : [-1.15, -0.85, -0.55, -0.28, 0, 0.28, 0.55, 0.85, 1.15];
@@ -1557,10 +1641,10 @@ function buildStreamlines() {
   const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
   breakPoints.length = 0;
   const tailX = XR * cosY;
-  for (const [y0, z0] of seeds) {
+  for (const [y0, z0, x0] of seeds) {
     const jy = clean ? 0 : (rnd() - 0.5) * 0.04, jz = clean ? 0 : (rnd() - 0.5) * 0.06;
-    let pts = tracePath(clean ? 9 : 5.5, y0 + jy, z0 + jz, clean ? 0.035 : 0.045, clean ? 480 : 320);
-    if (clean) pts = smoothPath(pts, glow ? 2 : 4);
+    let pts = tracePath(clean ? x0 : 5.5, y0 + jy, z0 + jz, clean ? 0.03 : 0.045, clean ? 560 : 320);
+    if (clean) pts = smoothPath(pts, glow ? 2 : 3, glow ? 0.04 : 0.05);
     const n = pts.length / 5;
     if (n < 3) continue;
     const base = pos.length / 3;

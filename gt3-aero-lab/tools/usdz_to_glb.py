@@ -202,12 +202,45 @@ for prim in stage.Traverse():
     mat = UsdShade.MaterialBindingAPI(prim).ComputeBoundMaterial()[0]
     meshes.append([P, N, UV, mat])
 
-# place: ground at y=0 (from wheels = lowest 1% of points), centre x/z
+# Square the car up using its wheels. The source model sits ~3 deg yawed and off-centre,
+# which would make "0 deg yaw" in the tunnel really ~3 deg.
+def wheel_centres():
+    tyres = [m[0] for m in meshes if m[3] and "110" in m[3].GetPath().name]
+    if not tyres:
+        return None
+    T = np.concatenate(tyres)
+    med = np.median(T, axis=0)
+    out = {}
+    for fx in (1, -1):
+        for sz in (1, -1):
+            q = T[(np.sign(T[:, 0] - med[0]) == fx) & (np.sign(T[:, 2] - med[2]) == sz)]
+            out[(fx, sz)] = ((q.min(0) + q.max(0)) / 2, q[:, 1].min())
+    return out
+
+
+wc = wheel_centres()
+if wc:
+    front = (wc[(1, 1)][0] + wc[(1, -1)][0]) / 2
+    rear = (wc[(-1, 1)][0] + wc[(-1, -1)][0]) / 2
+    yaw = np.arctan2(front[2] - rear[2], front[0] - rear[0])
+    c, s = np.cos(-yaw), np.sin(-yaw)
+    Ry = np.array([[c, 0, -s], [0, 1, 0], [s, 0, c]])   # rotates the car's heading onto +X
+    for m in meshes:
+        m[0] = m[0] @ Ry.T
+        m[1] = m[1] @ Ry.T
+    wc = wheel_centres()
+    print("squared up car: yaw correction %.2f deg" % np.degrees(-yaw))
+
+# place: ground at y=0 (tyre contact patches), centre on the wheels across, on the body lengthways
 allP = np.concatenate([m[0] for m in meshes])
-ground = np.percentile(allP[:, 1], 0.2)
+ground = np.mean([v[1] for v in wc.values()]) if wc else np.percentile(allP[:, 1], 0.2)
 cx = (np.percentile(allP[:, 0], 0.1) + np.percentile(allP[:, 0], 99.9)) / 2
-cz = (np.percentile(allP[:, 2], 0.1) + np.percentile(allP[:, 2], 99.9)) / 2
+cz = np.mean([v[0][2] for v in wc.values()]) if wc else (np.percentile(allP[:, 2], 0.1) + np.percentile(allP[:, 2], 99.9)) / 2
 off = np.array([cx, ground, cz])
+axles = None
+if wc:
+    axles = {"front": float((wc[(1, 1)][0][0] + wc[(1, -1)][0][0]) / 2 - cx),
+             "rear": float((wc[(-1, 1)][0][0] + wc[(-1, -1)][0][0]) / 2 - cx)}
 
 node_ids = []
 for P, N, UV, mat in meshes:
@@ -266,6 +299,8 @@ for x in xs:
     prof["roof"].append(float(roof)); prof["roofW"].append(float(roofW))
 
 prof["height"] = float(ymax_all)
+if axles:
+    prof["axles"] = axles
 with open(out_prof, "w") as f:
     json.dump(prof, f, indent=1)
 

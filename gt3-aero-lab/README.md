@@ -16,7 +16,7 @@ Serve the folder and open `index.html`, for example with `python3 -m http.server
 
 ## Model notes
 
-This is a teaching model, not CFD. Forces use `F = ½ρv²A·C` with coefficients tuned to typical GT3 figures (C<sub>L</sub> ≈ −1.18, C<sub>D</sub> ≈ 0.365 at 7° wing, A = 1.95 m²). Yaw and wing-angle sensitivities are simplified. The flow field is an analytic approximation built around a signed-distance model of the car's measured outline.
+This is a teaching model, not CFD. Forces use `F = ½ρv²A·C` with coefficients tuned to typical GT3 figures (C<sub>L</sub> ≈ −1.18, C<sub>D</sub> ≈ 0.365 at 7° wing, A = 1.95 m²). Yaw and wing-angle sensitivities are simplified. The flow field is an analytic approximation. It is built around a signed-distance field baked from the real car mesh (`car-sdf.js`, 4 cm voxels, about 1.6 cm mean surface error), with circulation models for the rear wing and trailing vortices at the wing tips, diffuser edges and dive planes. Smoke tubes are seeded by tracing the flow backwards from target points a few centimetres off the bodywork, so they skim the real surfaces.
 
 ## Rebuilding the model
 
@@ -26,12 +26,13 @@ This is a teaching model, not CFD. Forces use `F = ½ρv²A·C` with coefficient
 pip install usd-core numpy pygltflib pillow
 python3 tools/usdz_to_glb.py McLaren_720S_LMGT3_EVO.usdz raw.glb profiles.json
 python3 tools/split_wing.py raw.glb raw_wing.glb      # prints the hinge axis used as WING_HINGE
+python3 tools/build_sdf.py raw_wing.glb car-sdf.js     # distance field of the real car for the airflow (needs scipy)
 npx @gltf-transform/cli@4 optimize raw_wing.glb mclaren-720s-gt3-evo.glb \
   --compress quantize --texture-compress webp --texture-size 1024 \
   --simplify-ratio 0.5 --simplify-error 0.0005
 ```
 
-`split_wing.py` gives the moving wing parts their own `__wing` materials, so the optimizer keeps them as separate meshes, and measures the hinge axis through both pivot bolts. The converter rotates the car to face +X, scales it to metres and puts it on the ground. It also writes `profiles.json`, the car's outline measured at 48 stations along its length. Those numbers are embedded in `index.html` as `MEASURED`, and the flow field uses them so the smoke follows this car's real shape.
+`split_wing.py` gives the moving wing parts their own `__wing` materials, so the optimizer keeps them as separate meshes, and measures the hinge axis through both pivot bolts. The converter squares the car up using its wheels (the source model sits about 3° yawed), rotates it to face +X, scales it to metres and puts it on the ground. It also writes `profiles.json`, the car's outline measured at 48 stations along its length. Those numbers are embedded in `index.html` as `MEASURED`, and the flow field uses them so the smoke follows this car's real shape.
 
 ## Slipangle link
 
