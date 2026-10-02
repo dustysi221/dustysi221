@@ -39,7 +39,7 @@ def read(i):
     return r.reshape(-1, n) if n > 1 else r
 
 
-tris, is_wing = [], []
+tris, is_wing, is_tyre = [], [], []
 for m in g.meshes:
     p = m.primitives[0]
     T = read(p.attributes.POSITION).astype(np.float64)[read(p.indices).reshape(-1, 3)]
@@ -50,8 +50,10 @@ for m in g.meshes:
     wing |= (c[:, 0] < -1.75) & (c[:, 1] > 0.92)
     tris.append(T)
     is_wing.append(wing)
+    is_tyre.append(np.full(len(T), "110" in name))   # tyre material
 T = np.concatenate(tris)
 W = np.concatenate(is_wing)
+TY = np.concatenate(is_tyre)
 
 # dense surface samples (~1.2 cm apart)
 rng = np.random.default_rng(1)
@@ -63,8 +65,9 @@ r1 = np.sqrt(rng.random(len(idx)))
 r2 = rng.random(len(idx))
 pts = (1 - r1)[:, None] * a[idx] + (r1 * (1 - r2))[:, None] * b[idx] + (r1 * r2)[:, None] * c[idx]
 pw = W[idx]
+pt = TY[idx]
 keep = pts[:, 1] < 1.3          # drop the roof antenna; it's a wire, not an obstacle
-pts, pw = pts[keep], pw[keep]
+pts, pw, pt = pts[keep], pw[keep], pt[keep]
 
 
 def vox(p):
@@ -94,6 +97,15 @@ for i in range(NX):
         for y0, gap in zip(ys[:-1], gaps):
             if 1 < gap <= MAX_GAP:
                 occ[i, y0:y0 + gap, k] = True
+
+# Ground clearance. The floor sits only ~3-4 cm off the road, inside the bottom 4 cm voxel layer,
+# so it would merge with the road and seal the underside. Keep that layer open everywhere except
+# under the tyres, so air can flow under the floor from the splitter to the diffuser.
+tyre_cols = np.zeros((NX, NZ), bool)
+tsel = ok & pt & (iy <= 1)
+tyre_cols[ix[tsel], iz[tsel]] = True
+tyre_cols = ndimage.binary_dilation(tyre_cols, iterations=1)
+occ[:, 0, :] &= tyre_cols
 
 d_out = ndimage.distance_transform_edt(~occ) * VOX
 d_in = ndimage.distance_transform_edt(occ) * VOX
