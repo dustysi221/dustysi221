@@ -1043,65 +1043,31 @@ function addHeatOverlay(mat) {
   };
   mat.customProgramCacheKey = () => "heat-overlay";
 }
-/* ---------- Wheel motion blur: a spinning blurred-rim disc over each real wheel ---------- */
-const wheelBlur = new THREE.Group(); car.add(wheelBlur);
-const blurTex = (() => {
-  const N = 256, c = document.createElement("canvas"); c.width = c.height = N;
-  const g = c.getContext("2d"), m = N / 2;
-  const ring = (r0, r1, style) => { g.beginPath(); g.arc(m, m, r1 * m, 0, Math.PI * 2); g.arc(m, m, r0 * m, 0, Math.PI * 2, true); g.fillStyle = style; g.fill(); };
-  ring(0.74, 1.0, "#0a0a0b");                                          // tyre
-  for (let i = 0; i < 14; i++) ring(0.76 + i * 0.017, 0.765 + i * 0.017, `rgba(255,255,255,${0.02 + 0.03 * Math.random()})`);
-  ring(0.84, 0.9, "rgba(255,206,40,0.22)");                            // smeared sidewall lettering
-  const rim = g.createRadialGradient(m, m, 0, m, m, 0.74 * m);
-  rim.addColorStop(0, "#6b727b"); rim.addColorStop(0.35, "#3a3f46"); rim.addColorStop(0.8, "#24282d"); rim.addColorStop(1, "#15171a");
-  ring(0, 0.74, rim);
-  for (let i = 0; i < 22; i++) ring(0.12 + i * 0.028, 0.125 + i * 0.028, `rgba(200,210,225,${0.03 + 0.06 * Math.random()})`); // blurred spokes
-  for (let k = 0; k < 10; k++) {                                       // faint spoke smears so the spin reads
-    const a = k / 10 * Math.PI * 2;
-    g.beginPath(); g.moveTo(m, m); g.arc(m, m, 0.72 * m, a, a + 0.22); g.closePath();
-    g.fillStyle = "rgba(170,180,195,0.07)"; g.fill();
-  }
-  ring(0, 0.1, "#1b1d21"); ring(0.035, 0.06, "rgba(255,128,0,0.55)"); // hub / centre-lock
-  // soft outer edge
-  const e = g.createRadialGradient(m, m, 0.93 * m, m, m, m);
-  e.addColorStop(0, "rgba(0,0,0,0)"); e.addColorStop(1, "rgba(0,0,0,1)");
-  g.globalCompositeOperation = "destination-out"; g.fillStyle = e; g.fillRect(0, 0, N, N);
-  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; return t;
-})();
-function buildWheelBlur(root) {
-  while (wheelBlur.children.length) wheelBlur.remove(wheelBlur.children[0]);
-  let tyre = null;
-  root.traverse((o) => { if (o.isMesh && /mat_110/.test(o.material.name)) tyre = o; });
-  const groups = {};
-  if (tyre) {
-    car.updateMatrixWorld(true);
-    const M = new THREE.Matrix4().copy(car.matrixWorld).invert().multiply(tyre.matrixWorld);
-    const P = tyre.geometry.attributes.position, sc = attrScale(P), v = new THREE.Vector3();
-    for (let i = 0; i < P.count; i++) {
-      v.set(P.getX(i) * sc, P.getY(i) * sc, P.getZ(i) * sc).applyMatrix4(M);
-      const k = (v.x > 0 ? "f" : "r") + (v.z > 0 ? "l" : "r");
-      const b = groups[k] || (groups[k] = new THREE.Box3());
-      b.expandByPoint(v);
+/* ---------- Spinning wheels on the real model ----------
+   tools/split_wheels.py gives each wheel's rotating parts (tyre, rim, centre-lock, brake disc)
+   their own "__wheelFL/FR/RL/RR" materials and measures each hub centre and spin axis (which
+   includes the car's camber). The brake calipers stay fixed, as on the real car. */
+const WHEELS = {"FL": {"c": [1.224, 0.3301, 0.8484], "axis": [-9e-05, 0.06486, 0.99789], "r": 0.341}, "FR": {"c": [1.2231, 0.3072, -0.8486], "axis": [0.0016, -0.0369, 0.99932], "r": 0.339}, "RL": {"c": [-1.4707, 0.3881, 0.8421], "axis": [0.0037, 0.06439, 0.99792], "r": 0.353}, "RR": {"c": [-1.4716, 0.3606, -0.8418], "axis": [-0.0025, -0.0338, 0.99943], "r": 0.353}};
+const wheelHubs = [];
+function setupSpinningWheels(root) {
+  car.updateMatrixWorld(true);
+  const carInv = new THREE.Matrix4().copy(car.matrixWorld).invert();
+  for (const key in WHEELS) {
+    const W = WHEELS[key], parts = [];
+    root.traverse((o) => { if (o.isMesh && o.material.name.endsWith("__wheel" + key)) parts.push(o); });
+    if (!parts.length) continue;
+    const hub = new THREE.Group();
+    hub.position.set(...W.c);
+    car.add(hub);
+    const toHub = new THREE.Matrix4().makeTranslation(-W.c[0], -W.c[1], -W.c[2]);
+    for (const o of parts) {
+      const rel = carInv.clone().multiply(o.matrixWorld);
+      o.parent.remove(o);
+      o.matrixAutoUpdate = false;
+      o.matrix.copy(toHub).multiply(rel);
+      hub.add(o);
     }
-  }
-  const mat = () => new THREE.MeshStandardMaterial({ map: blurTex, transparent: true, opacity: 0, roughness: 0.45, metalness: 0.35, depthWrite: false });
-  const add = (cx, cy, r, z, side) => {
-    const d = new THREE.Mesh(new THREE.CircleGeometry(r, 48), mat());
-    d.position.set(cx, cy, z + side * 0.006);
-    d.rotation.y = side > 0 ? 0 : Math.PI;
-    d.userData.side = side; d.userData.r = r;
-    wheelBlur.add(d);
-  };
-  const keys = Object.keys(groups);
-  if (keys.length === 4) {
-    for (const k of keys) {
-      const b = groups[k], side = k[1] === "l" ? 1 : -1;
-      const c = b.getCenter(new THREE.Vector3());
-      const r = Math.min(b.max.y - b.min.y, b.max.x - b.min.x) / 2 * 0.97;
-      add(c.x, c.y, r, side > 0 ? b.max.z : b.min.z, side);
-    }
-  } else {
-    for (const x of [AXLE_F, AXLE_R]) for (const side of [1, -1]) add(x, 0.35, 0.34, side * 1.02, side);
+    wheelHubs.push({ hub, axis: new THREE.Vector3(...W.axis).normalize(), r: W.r, angle: 0 });
   }
 }
 
@@ -1157,7 +1123,7 @@ function loadModel() {
     model.traverse((o) => { if (o.isMesh) colorable.push(o); });
     car.add(model);
     proc.visible = false;
-    buildWheelBlur(model);
+    setupSpinningWheels(model);
     setupMovableWing(model);
     useMeasuredOutline();
     dirty.surface = dirty.stream = dirty.vec = true; lastCpKey = "";
@@ -2223,12 +2189,11 @@ function frame(now) {
   roadTex.offset.y -= vis * dt / 14 * 6 * 0.35;
   road.rotation.z = Math.PI / 2 + S.cYaw * DEG;
   for (const w of wheelSpin) w.g.rotation.z -= w.dir * vis * dt / 0.345;
-  // motion blur fades in with speed; the disc turns slowly so the smear reads as rotation
-  const blur = Math.min(1, Math.max(0, (S.cSpeed - 30) / 110)) * 0.94;
-  for (const d of wheelBlur.children) {
-    d.material.opacity = blur;
-    d.visible = blur > 0.01;
-    d.rotation.z -= d.userData.side * (2 + vis * 1.6) * dt;
+  // roll the real wheels at the same speed as the rolling road (forward rolling = negative
+  // rotation about the left-pointing axle)
+  for (const w of wheelHubs) {
+    w.angle -= vis * dt / w.r;
+    w.hub.quaternion.setFromAxisAngle(w.axis, w.angle);
   }
 
   updateArrows(A);
