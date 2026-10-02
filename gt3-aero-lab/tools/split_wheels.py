@@ -1,11 +1,13 @@
 """Separate the rotating parts of each wheel so the page can spin them.
 
+Hub centre and spin axis come from the brake disc (see below), so the wheels run true.
+
 Runs after split_wing.py (meshes not yet joined). For each wheel it takes the meshes that are
 centred on that wheel's axle (tyre, rim, rim face / centre-lock, brake disc) and gives them a
 copy of their material named "<name>__wheel<FL|FR|RL|RR>", so the optimizer keeps every wheel
 as its own mesh. Off-centre parts such as the brake calipers keep their material and stay put.
 
-It prints each wheel's hub centre and spin axis (from the tyre's shape) as JSON for index.html
+It prints each wheel's hub centre and spin axis (from the brake disc) as JSON for index.html
 (WHEELS).
 
 Usage: python3 split_wheels.py raw_wing.glb raw_ww.glb
@@ -72,6 +74,65 @@ for mi, key in assign.items():
     m.pbrMetallicRoughness.roughnessFactor = (pbr.roughnessFactor or 0.5) * (0.9998 - 0.0001 * "FL FR RL RR".split().index(key))
     g.materials.append(m)
     p.material = len(g.materials) - 1
+
+# Refine each hub from its brake disc: a thin, perfectly flat ring, so its plane normal is the
+# true spin axis and its centroid the true hub. The tyre's bounding box sits ~6 mm off (the tread
+# is not centred on the box), and spinning about that point made the wheels wobble.
+for key, w in wheels.items():
+    for mi, k in assign.items():
+        name = g.materials[g.meshes[mi].primitives[0].material].name
+        if k == key and "108" in name:
+            P = next(P for m2, _, P in meshes if m2 == mi)
+            c = P.mean(0)
+            _, _, vt = np.linalg.svd(P - c, full_matrices=False)
+            a = vt[-1] if vt[-1][2] > 0 else -vt[-1]
+            w["c"], w["axis"] = c, a
+
+# Re-round the tyres. The model's tyres are sculpted "loaded": a ~13-15 mm flat contact patch
+# and a slight sidewall bulge at the bottom. That is right for a parked car, but once the tyre
+# spins the flat spot travels round and the wheel looks like it wobbles. Every vertex in the
+# squashed bottom sector takes its (radius, axial) position from the matching vertex on the
+# undeformed top of the same tyre, keeping its own angle, so the tyre turns perfectly true.
+from scipy.spatial import cKDTree
+
+buf = bytearray(blob)
+
+
+def rotate(P, c, a, t):
+    d = P - c
+    return c + d * np.cos(t) + np.cross(a, d) * np.sin(t) + np.outer(d @ a, a) * (1 - np.cos(t))
+
+
+for key, w in wheels.items():
+    mi = w["mesh"]
+    acc_i = g.meshes[mi].primitives[0].attributes.POSITION
+    P = next(P for m2, _, P in meshes if m2 == mi).copy()
+    c, a = np.asarray(w["c"]), np.asarray(w["axis"])
+    d = P - c
+    h = d @ a
+    radial = d - np.outer(h, a)
+    r = np.linalg.norm(radial, axis=1)
+    down = np.array([0.0, -1.0, 0.0])
+    down = down - (down @ a) * a
+    down /= np.linalg.norm(down)
+    cos_down = (radial @ down) / np.maximum(r, 1e-9)
+    bottom = cos_down > np.cos(np.radians(75))
+    top = cos_down < -np.cos(np.radians(75))
+    tree = cKDTree(P[top])
+    _, nn = tree.query(rotate(P[bottom], c, a, np.pi))
+    ref = P[top][nn] - c
+    ref_h = ref @ a
+    ref_r = np.linalg.norm(ref - np.outer(ref_h, a), axis=1)
+    unit = radial[bottom] / np.maximum(r[bottom], 1e-9)[:, None]
+    P[bottom] = c + unit * ref_r[:, None] + np.outer(ref_h, a)
+    acc = g.accessors[acc_i]
+    bv = g.bufferViews[acc.bufferView]
+    off = bv.byteOffset + (acc.byteOffset or 0)
+    buf[off:off + P.size * 4] = P.astype(np.float32).tobytes()
+    acc.min = P.min(0).astype(float).tolist()
+    acc.max = P.max(0).astype(float).tolist()
+    print("re-rounded tyre", key, "bottom vertices", int(bottom.sum()), file=sys.stderr)
+g.set_binary_blob(bytes(buf))
 
 g.save_binary(dst)
 out = {k: {"c": [round(float(v), 4) for v in w["c"]], "axis": [round(float(v), 5) for v in w["axis"]], "r": round(w["r"], 3)}

@@ -1045,9 +1045,9 @@ function addHeatOverlay(mat) {
 }
 /* ---------- Spinning wheels on the real model ----------
    tools/split_wheels.py gives each wheel's rotating parts (tyre, rim, centre-lock, brake disc)
-   their own "__wheelFL/FR/RL/RR" materials and measures each hub centre and spin axis (which
-   includes the car's camber). The brake calipers stay fixed, as on the real car. */
-const WHEELS = {"FL": {"c": [1.224, 0.3301, 0.8484], "axis": [-9e-05, 0.06486, 0.99789], "r": 0.341}, "FR": {"c": [1.2231, 0.3072, -0.8486], "axis": [0.0016, -0.0369, 0.99932], "r": 0.339}, "RL": {"c": [-1.4707, 0.3881, 0.8421], "axis": [0.0037, 0.06439, 0.99792], "r": 0.353}, "RR": {"c": [-1.4716, 0.3606, -0.8418], "axis": [-0.0025, -0.0338, 0.99943], "r": 0.353}};
+   their own "__wheelFL/FR/RL/RR" materials and measures each hub centre and spin axis from the
+   brake disc (true to under a millimetre, and including the car's camber). The brake calipers stay fixed, as on the real car. */
+const WHEELS = {"FL": {"c": [1.2238, 0.3243, 0.8564], "axis": [-0.00073, 0.06617, 0.99781], "r": 0.341}, "FR": {"c": [1.2226, 0.3005, -0.8605], "axis": [-0.00025, -0.03865, 0.99925], "r": 0.339}, "RL": {"c": [-1.4709, 0.3811, 0.851], "axis": [0.0034, 0.06351, 0.99798], "r": 0.353}, "RR": {"c": [-1.4713, 0.3544, -0.8472], "axis": [-0.00084, -0.03471, 0.9994], "r": 0.353}};
 const wheelHubs = [];
 function setupSpinningWheels(root) {
   car.updateMatrixWorld(true);
