@@ -1273,9 +1273,28 @@ function updateSurfaceCp() {
     for (let i = 0; i < P.count; i++) {
       _v.set(P.getX(i) * ps, P.getY(i) * ps, P.getZ(i) * ps).applyMatrix4(_m);
       _n.set(N.getX(i) * ns, N.getY(i) * ns, N.getZ(i) * ns).applyMatrix3(_nm).normalize();
-      cp[i] = surfaceCp(mesh.userData.part, _v.x, _v.y, _v.z, _n.x, _n.y, _n.z);
+      let c = surfaceCp(mesh.userData.part, _v.x, _v.y, _v.z, _n.x, _n.y, _n.z);
+      // A surface only builds stagnation pressure if the oncoming air can actually reach it.
+      // Forward-facing faces at the back (rear tyres in their arches, inner arch and tail
+      // panels, diffuser fins) sit in the car's own shadow: they see the mild suction of the
+      // slipstream, not ram pressure.
+      const facing = -(flow.ux * _n.x + flow.uz * _n.z);
+      if (c > 0 && facing > 0.05 && USE_GRID && shadowed(_v.x, _v.y, _v.z, _n.x, _n.y, _n.z)) c = -0.2 - 0.1 * facing;
+      cp[i] = c;
     }
   }
+}
+// March upstream (into the oncoming air) from just off the surface; true if the car is in the way.
+function shadowed(px, py, pz, nx, ny, nz) {
+  const dx = -flow.ux, dz = -flow.uz;
+  let x = px + nx * 0.05, y = py + ny * 0.05, z = pz + nz * 0.05, travelled = 0;
+  for (let k = 0; k < 48 && travelled < 4.5; k++) {
+    const d = carSD(x, y, z);
+    if (travelled > 0.08 && d < 0) return true;
+    const step = Math.max(0.03, d);
+    x += dx * step; z += dz * step; travelled += step;
+  }
+  return false;
 }
 const _hc = [0, 0, 0];
 function paintSurfaces() {
