@@ -1074,63 +1074,31 @@ function buildWheelBlur(root) {
 }
 
 /* ---------- Adjustable rear wing on the real model ----------
-   The main plane sits between the two endplates. Its triangles are moved onto a hinge so the
-   wing-angle slider tilts it; endplates and swan-neck mounts stay put, like the real car. */
+   Like the real car: the wing (main plane + endplates) hangs from the swan-neck mounts on a
+   bracket plate each side. The plates pivot on one bolt and lock with a second bolt in a slot.
+   tools/split_wing.py separates those moving parts (materials named "__wing") and measures
+   the hinge axis through both pivot bolts. Swan necks, their cheeks and the pivot bolts stay put. */
 const WING_REF_DEG = 7;      // the angle the model was built at
 const WING_VIS_GAIN = 2;     // drawn at 2x so a few degrees is easy to see
-const WING_BOX = { x1: -1.86, y0: 0.86, z0: -0.775, z1: 0.985 };
+const WING_HINGE = { origin: [-2.1544, 1.1149, -0.3077], axis: [0.05316, 0.01462, 0.99848] };
 const modelWingPivot = new THREE.Group();
+const wingAxis = new THREE.Vector3(...WING_HINGE.axis).normalize();
 let modelWingReady = false;
 function setupMovableWing(root) {
+  const parts = [];
+  root.traverse((o) => { if (o.isMesh && /__wing/.test(o.material.name)) parts.push(o); });
+  if (!parts.length) return;
   car.updateMatrixWorld(true);
   const carInv = new THREE.Matrix4().copy(car.matrixWorld).invert();
-  const v = new THREE.Vector3(), box = new THREE.Box3();
-  const parts = [], hooks = new THREE.Box3();
-  root.traverse((o) => {
-    if (!o.isMesh || !o.geometry.index) return;
-    if (/mat_60/.test(o.material.name)) {
-      // mat_60 carries the swan-neck mounts: they stay fixed, and their hooks mark the hinge line
-      const rel = carInv.clone().multiply(o.matrixWorld), P = o.geometry.attributes.position, sc = attrScale(P);
-      for (let i = 0; i < P.count; i++) {
-        v.set(P.getX(i) * sc, P.getY(i) * sc, P.getZ(i) * sc).applyMatrix4(rel);
-        if (v.x < WING_BOX.x1 && v.y > 1.0 && v.y < 1.35 && v.z > WING_BOX.z0 && v.z < WING_BOX.z1) hooks.expandByPoint(v);
-      }
-      return;
-    }
-    // only the wing's own surface (mat_94) moves; bolts and bracket plates (mat_16) stay on the mounts
-    if (!/mat_94/.test(o.material.name)) return;
-    const rel = carInv.clone().multiply(o.matrixWorld);
-    const P = o.geometry.attributes.position, sc = attrScale(P), I = o.geometry.index.array;
-    const keep = [], move = [];
-    const cx = (i) => v.set(P.getX(i) * sc, P.getY(i) * sc, P.getZ(i) * sc).applyMatrix4(rel);
-    for (let t = 0; t < I.length; t += 3) {
-      let x = 0, y = 0, z = 0;
-      for (let k = 0; k < 3; k++) { cx(I[t + k]); x += v.x; y += v.y; z += v.z; }
-      x /= 3; y /= 3; z /= 3;
-      const inWing = x < WING_BOX.x1 && y > WING_BOX.y0 && z > WING_BOX.z0 && z < WING_BOX.z1;
-      (inWing ? move : keep).push(I[t], I[t + 1], I[t + 2]);
-      if (inWing) for (let k = 0; k < 3; k++) box.expandByPoint(cx(I[t + k]));
-    }
-    if (move.length) parts.push({ o, rel, keep, move });
-  });
-  if (!parts.length) return;
-  // hinge at the swan-neck pick-ups on the top surface (fallback: 40% back from the leading edge)
-  const hx = hooks.isEmpty() ? box.max.x - 0.4 * (box.max.x - box.min.x) : (hooks.min.x + hooks.max.x) / 2;
-  const pivot = new THREE.Vector3(hx, box.max.y, (box.min.z + box.max.z) / 2);
-  modelWingPivot.position.copy(pivot);
+  modelWingPivot.position.set(...WING_HINGE.origin);
   car.add(modelWingPivot);
-  const toPivot = new THREE.Matrix4().makeTranslation(-pivot.x, -pivot.y, -pivot.z);
-  for (const { o, rel, keep, move } of parts) {
-    const IA = o.geometry.index.array.constructor;
-    o.geometry.setIndex(new THREE.BufferAttribute(new IA(keep), 1));
-    // the moving part shares the vertex data (so the pressure colours follow it)
-    const g = new THREE.BufferGeometry();
-    for (const k in o.geometry.attributes) g.setAttribute(k, o.geometry.attributes[k]);
-    g.setIndex(new THREE.BufferAttribute(new IA(move), 1));
-    const m = new THREE.Mesh(g, o.material);
-    m.matrixAutoUpdate = false;
-    m.matrix.copy(toPivot).multiply(rel);
-    modelWingPivot.add(m);
+  const toPivot = new THREE.Matrix4().makeTranslation(...WING_HINGE.origin.map((v) => -v));
+  for (const o of parts) {
+    const rel = carInv.clone().multiply(o.matrixWorld);
+    o.parent.remove(o);
+    o.matrixAutoUpdate = false;
+    o.matrix.copy(toPivot).multiply(rel);
+    modelWingPivot.add(o);
   }
   modelWingReady = true;
 }
@@ -2099,7 +2067,7 @@ function frame(now) {
   setYaw(S.cYaw * DEG);
   wingPivot.rotation.z = -(S.cWing - 2) * DEG * 1.2;
   // more angle lifts the trailing edge (front of the car is +x)
-  if (modelWingReady) modelWingPivot.rotation.z = -(S.cWing - WING_REF_DEG) * DEG * WING_VIS_GAIN;
+  if (modelWingReady) modelWingPivot.quaternion.setFromAxisAngle(wingAxis, -(S.cWing - WING_REF_DEG) * DEG * WING_VIS_GAIN);
   const A = aero(S.cSpeed, S.cYaw, S.cWing);
   flow.load = A.CL / 1.18;
 
