@@ -1,0 +1,2550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GT3 Aero Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed wind-tunnel stage on the left, engineer's run sheet on the right; stacks on phones. */
+:root {
+  --bg: #0a0d11;
+  --stage: #07090c;
+  --panel: #10151b;
+  --raise: #161d25;
+  --line: #222b36;
+  --fg: #e6ebf0;
+  --muted: #8794a3;
+  --faint: #56616e;
+  --accent: #ff8000;
+  --accent-ink: #1a0d00;
+  --df: #8dffc4;
+  --drag: #ffc94a;
+  --side: #c8a4ff;
+  --font-display: "Saira Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --panel-w: 372px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+button, input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.app {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--panel-w);
+  height: 100%;
+}
+
+/* ---------- Stage ---------- */
+.stage {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background: radial-gradient(120% 90% at 50% 40%, #121922 0%, var(--stage) 70%);
+}
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#gl:active { cursor: grabbing; }
+
+.stage-head {
+  position: absolute; top: 16px; left: 20px; right: 20px;
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
+  pointer-events: none;
+}
+.eyebrow {
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: .14em; text-transform: uppercase; color: var(--muted);
+  display: flex; align-items: center; gap: 8px;
+}
+.eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+h1 {
+  margin: 6px 0 0;
+  font: 700 clamp(28px, 4.2vw, 48px)/.92 var(--font-display);
+  letter-spacing: .01em; text-transform: uppercase;
+  text-wrap: balance;
+}
+h1 em { font-style: normal; color: var(--accent); }
+.run-tag {
+  font: 500 11px/1.5 var(--font-mono); color: var(--muted); text-align: right;
+  letter-spacing: .06em; white-space: nowrap;
+}
+.run-tag b { color: var(--fg); font-weight: 500; }
+
+.hud {
+  position: absolute; left: 20px; right: 20px; bottom: 16px;
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px;
+  pointer-events: none;
+}
+.readouts { display: flex; gap: 24px; flex-wrap: wrap; }
+.readout { display: grid; gap: 2px; }
+.readout .k { font: 500 10px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.readout .k i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.readout .v { font: 600 34px/1 var(--font-display); font-variant-numeric: tabular-nums; letter-spacing: .01em; }
+.readout .v small { font: 500 13px/1 var(--font-mono); color: var(--muted); margin-left: 4px; }
+
+.legend { display: grid; gap: 6px; width: min(280px, 100%); }
+.legend .k { font: 500 10px/1 var(--font-mono); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.legend .bar {
+  height: 8px; border-radius: 4px;
+  background: linear-gradient(90deg, #1b3bff, #1f7bff 20%, #3cc8ff 38%, #b9c6d2 55%, #ffd23f 70%, #ff7a1a 85%, #ff2a2a);
+}
+.legend .ends { white-space: nowrap; gap: 8px; display: flex; justify-content: space-between; font: 400 11px/1 var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.view-bar {
+  position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+  display: grid; gap: 6px;
+}
+.view-bar button {
+  pointer-events: auto;
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 10px; min-width: 64px;
+  font: 500 11px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  cursor: pointer; backdrop-filter: blur(6px);
+  transition: color .15s, border-color .15s;
+}
+.view-bar button:hover { color: var(--fg); border-color: var(--faint); }
+.view-bar button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+
+#labels { position: absolute; inset: 0; pointer-events: none; }
+.stage::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(120% 95% at 50% 48%, transparent 55%, rgba(0, 0, 0, 0.55) 100%);
+}
+.stage.cine .hud, .stage.cine #labels, .stage.cine .run-tag, .stage.cine .hint { opacity: 0; pointer-events: none; }
+.stage .hud, .stage #labels, .stage .run-tag { transition: opacity .4s; }
+.flabel {
+  position: absolute; transform: translate(-50%, -130%);
+  font: 500 11px/1.2 var(--font-mono); white-space: nowrap;
+  padding: 3px 6px; border-radius: 4px;
+  background: rgba(7, 9, 12, .78); border: 1px solid currentColor;
+  font-variant-numeric: tabular-nums;
+}
+.hint {
+  position: absolute; left: 50%; top: 16px; transform: translateX(-50%);
+  font: 400 11px/1 var(--font-mono); color: var(--faint); letter-spacing: .06em; pointer-events: none;
+  transition: opacity .6s;
+}
+
+/* ---------- Panel ---------- */
+.panel {
+  min-width: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  overflow-y: auto;
+  padding: 20px 20px 28px;
+  display: grid; align-content: start; gap: 26px;
+}
+.panel h2 {
+  margin: 0 0 12px;
+  font: 600 13px/1 var(--font-mono); letter-spacing: .16em; text-transform: uppercase; color: var(--muted);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.panel h2 span { color: var(--faint); font-weight: 400; letter-spacing: .06em; text-transform: none; }
+
+.ctrl { display: grid; gap: 8px; }
+.ctrls { display: grid; gap: 18px; }
+.ctrl-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.ctrl label { font-weight: 500; }
+.ctrl output { font: 600 20px/1 var(--font-display); font-variant-numeric: tabular-nums; color: var(--fg); }
+.ctrl output small { font: 500 11px var(--font-mono); color: var(--muted); margin-left: 3px; }
+.ctrl .note { font-size: 12px; color: var(--muted); margin: 0; }
+.ticks { display: flex; justify-content: space-between; font: 400 10px/1 var(--font-mono); color: var(--faint); font-variant-numeric: tabular-nums; }
+
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; margin: 0; cursor: pointer; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(90deg, var(--accent) var(--fill, 50%), var(--line) var(--fill, 50%)); }
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line); }
+input[type="range"]::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--accent); }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; margin-top: -7px; border-radius: 50%; background: var(--fg); border: 4px solid var(--accent); }
+input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: var(--fg); border: 4px solid var(--accent); }
+
+.modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.mode {
+  display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: center;
+  text-align: left; cursor: pointer;
+  background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  transition: border-color .15s, background .15s;
+}
+.mode:hover { border-color: var(--faint); }
+.mode .sw { grid-row: span 2; width: 14px; height: 14px; border-radius: 4px; border: 2px solid var(--faint); transition: all .15s; }
+.mode b { font-weight: 600; font-size: 13px; }
+.mode span { font-size: 11px; color: var(--muted); }
+.mode[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--raise)); }
+.mode[aria-pressed="true"] .sw { background: var(--accent); border-color: var(--accent); }
+
+.numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.num { background: var(--panel); padding: 10px 12px; display: grid; gap: 4px; }
+.num .k { font-size: 11px; color: var(--muted); }
+.num .v { font: 600 22px/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.num .v small { font: 500 11px var(--font-mono); color: var(--muted); margin-left: 3px; }
+.balance { grid-column: span 2; }
+.bal-bar { position: relative; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+.bal-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--df); border-radius: 3px; transition: width .2s; }
+.bal-ends { display: flex; justify-content: space-between; font: 400 10px/1 var(--font-mono); color: var(--faint); margin-top: 4px; }
+
+.chart-wrap { margin-top: 12px; }
+.chart-wrap .cap { font-size: 12px; color: var(--muted); margin: 0 0 6px; display: flex; gap: 14px; flex-wrap: wrap; }
+.chart-wrap .cap i { display: inline-block; width: 14px; height: 0; border-top: 2px solid; vertical-align: middle; margin-right: 5px; }
+#chart { width: 100%; height: 150px; display: block; }
+
+.cars { display: grid; gap: 6px; }
+.car-btn {
+  display: grid; grid-template-columns: 14px 1fr; column-gap: 10px; align-items: center; text-align: left; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; color: var(--fg);
+}
+.car-btn:hover { border-color: var(--faint); }
+.car-btn i { grid-row: span 2; width: 12px; height: 12px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 3px color-mix(in srgb, var(--c) 22%, transparent); }
+.car-btn b { font-weight: 600; font-size: 13px; }
+.car-btn span { font-size: 11px; color: var(--muted); }
+.car-btn[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--raise)); }
+.seg { display: flex; align-items: center; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
+.seg span { font-size: 12px; color: var(--muted); margin-right: 4px; }
+.seg button { cursor: pointer; background: var(--raise); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-size: 12px; color: var(--muted); }
+.seg button[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+.loading {
+  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%);
+  font: 500 11px/1 var(--font-mono); letter-spacing: .08em; color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 85%, transparent); border: 1px solid var(--line); border-radius: 999px;
+  padding: 7px 12px; pointer-events: none; transition: opacity .5s; white-space: nowrap;
+}
+.features { display: grid; gap: 6px; }
+.feat {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center;
+  width: 100%; text-align: left; cursor: pointer;
+  background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px;
+  transition: border-color .15s, background .15s;
+}
+.feat:hover { border-color: var(--faint); }
+.feat b { font-weight: 600; }
+.feat .loc { font: 400 10px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.feat p { grid-column: 1 / -1; margin: 6px 0 0; color: var(--muted); font-size: 13px; display: none; max-width: 60ch; }
+.feat[aria-expanded="true"] { border-color: var(--accent); background: var(--raise); }
+.feat[aria-expanded="true"] p { display: block; }
+.feat[aria-expanded="true"] .loc { color: var(--accent); }
+
+.explain { display: grid; gap: 10px; color: var(--muted); font-size: 13px; }
+.explain p { margin: 0; max-width: 62ch; }
+.explain strong { color: var(--fg); font-weight: 600; }
+.formula { font: 500 13px/1.4 var(--font-mono); color: var(--fg); background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; overflow-x: auto; }
+
+.foot { font-size: 12px; color: var(--faint); display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 14px; }
+.foot p { margin: 0; }
+.foot a { color: var(--accent); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.foot a:hover { border-bottom-color: var(--accent); }
+
+.fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; color: var(--muted); }
+
+/* ---------- Phone / narrow ---------- */
+@media (max-width: 880px) {
+  html, body { height: auto; }
+  .app { grid-template-columns: 1fr; height: auto; }
+  .stage { height: 64svh; min-height: 420px; }
+  .panel { border-left: 0; border-top: 1px solid var(--line); overflow: visible; padding: 20px 16px 32px; }
+  .stage-head { left: 16px; right: 16px; top: 12px; }
+  .run-tag { display: none; }
+  .view-bar { display: flex; left: 16px; right: 16px; top: 84px; transform: none; overflow-x: auto; gap: 6px; scrollbar-width: none; }
+  .view-bar button { min-width: 0; flex: 0 0 auto; padding: 6px 8px; font-size: 10px; }
+  .readout.coef { display: none; }
+  .hud { left: 16px; right: 16px; bottom: 12px; gap: 10px; }
+  .readouts { gap: 16px; }
+  .readout .v { font-size: 26px; }
+  .legend { width: 100%; }
+  .hint { display: none; }
+}
+/* ---------- Background mode (#bg): just the car and airflow, full-window, no UI ---------- */
+html.bg-mode, html.bg-mode body { height: 100% !important; overflow: hidden; }
+.bg-mode .app { grid-template-columns: 1fr !important; height: 100% !important; }
+.bg-mode .stage { height: 100% !important; min-height: 0 !important; }
+.bg-mode .panel, .bg-mode .stage-head, .bg-mode .hud, .bg-mode .view-bar, .bg-mode #labels,
+.bg-mode .hint, .bg-mode .loading { display: none !important; }
+.bg-mode #gl { cursor: default; }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <section class="stage" id="stage" aria-label="3D wind tunnel view of the car">
+    <canvas id="gl"></canvas>
+    <div id="labels"></div>
+
+    <div class="stage-head">
+      <div>
+        <div class="eyebrow"><span class="dot"></span>Virtual wind tunnel · rolling road</div>
+        <h1 id="carTitle">McLaren 720S <em>GT3 EVO</em></h1>
+      </div>
+      <div class="run-tag" id="runTag">RUN 01 · <b>250 km/h</b> · yaw <b>0.0°</b><br>ρ 1.225 kg/m³ · A 1.95 m²</div>
+    </div>
+    <div class="hint" id="hint">Drag to orbit · scroll or pinch to zoom</div>
+    <div class="loading" id="loading">Loading car model…</div>
+
+    <div class="view-bar" role="group" aria-label="Camera views">
+      <button type="button" data-view="three">¾ front</button>
+      <button type="button" data-view="side">Side</button>
+      <button type="button" data-view="rear">¾ rear</button>
+      <button type="button" data-view="top">Top</button>
+      <button type="button" data-view="under">Under</button>
+      <button type="button" id="spinBtn" aria-pressed="false">Spin</button>
+      <button type="button" id="cineBtn" aria-pressed="false">Cinema</button>
+    </div>
+
+    <div class="hud">
+      <div class="readouts">
+        <div class="readout"><span class="k"><i style="background:var(--df)"></i>Downforce</span><span class="v" id="hudDf">0<small>kg</small></span></div>
+        <div class="readout"><span class="k"><i style="background:var(--drag)"></i>Drag</span><span class="v" id="hudDrag">0<small>N</small></span></div>
+        <div class="readout coef"><span class="k">C<sub>L</sub> / C<sub>D</sub></span><span class="v" id="hudCoef">0 / 0</span></div>
+      </div>
+      <div class="legend" id="legend">
+        <span class="k">Pressure · blue = suction, red = push</span>
+        <div class="bar"></div>
+        <div class="ends"><span id="legLo">−6.8 kPa</span><span>ambient</span><span id="legHi">+4.3 kPa</span></div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <section>
+      <h2>Car <span>pick one to test</span></h2>
+      <div class="cars" role="group" aria-label="Car">
+        <button type="button" class="car-btn" data-car="mclaren" aria-pressed="true"><i style="--c:#ff8000"></i><b>McLaren 720S GT3 EVO</b><span>GT3 race car</span></button>
+        <button type="button" class="car-btn" data-car="redbull" aria-pressed="false"><i style="--c:#ffcc00"></i><b>Red Bull Racing F1</b><span>Formula 1, 2020-era rules</span></button>
+        <button type="button" class="car-btn" data-car="valkyrie" aria-pressed="false"><i style="--c:#bfe600"></i><b>Aston Martin Valkyrie</b><span>Road-legal hypercar</span></button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Run conditions</h2>
+      <div class="ctrls">
+        <div class="ctrl">
+          <div class="ctrl-top"><label for="speed">Speed</label><output id="speedOut">250<small>km/h</small></output></div>
+          <input type="range" id="speed" min="0" max="300" step="1" value="250">
+          <div class="ticks"><span>0</span><span>100</span><span>200</span><span>300</span></div>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-top"><label for="yaw">Yaw angle</label><output id="yawOut">0.0<small>°</small></output></div>
+          <input type="range" id="yaw" min="0" max="20" step="0.5" value="0">
+          <p class="note">The angle between where the car points and where the air comes from. It grows mid-corner and in crosswinds.</p>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-top"><label for="wing">Rear wing angle</label><output id="wingOut">7<small>°</small></output></div>
+          <input type="range" id="wing" min="2" max="12" step="1" value="7">
+          <p class="note" id="wingNote">More angle adds rear grip but costs top speed. The wing tilts on the car, drawn at 2× so small changes show.</p>
+        </div>
+        <div class="ctrl">
+          <div class="ctrl-top"><label for="heading">View heading</label><output id="headOut">35<small>°</small></output></div>
+          <input type="range" id="heading" min="0" max="360" step="1" value="35">
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Visualise <span>toggle any mix</span></h2>
+      <div class="modes">
+        <button type="button" class="mode" data-mode="pressure" aria-pressed="false"><i class="sw"></i><b>Pressure zones</b><span>Heat map on the body</span></button>
+        <button type="button" class="mode" data-mode="streamlines" aria-pressed="true"><i class="sw"></i><b>Smoke lines</b><span>Paths the air takes</span></button>
+        <button type="button" class="mode" data-mode="smoke" aria-pressed="true"><i class="sw"></i><b>Wake smoke</b><span>Turbulence behind the car</span></button>
+        <button type="button" class="mode" data-mode="particles" aria-pressed="false"><i class="sw"></i><b>Particles</b><span>Fast tracer streaks</span></button>
+        <button type="button" class="mode" data-mode="vectors" aria-pressed="false"><i class="sw"></i><b>Vectors</b><span>Local speed and direction</span></button>
+        <button type="button" class="mode" data-mode="forces" aria-pressed="true"><i class="sw"></i><b>Force arrows</b><span>Downforce, drag, side</span></button>
+      </div>
+      <div class="seg" role="group" aria-label="Smoke style">
+        <span>Smoke style</span>
+        <button type="button" data-style="glow" aria-pressed="true">CFD glow</button>
+        <button type="button" data-style="clean" aria-pressed="false">Clean tubes</button>
+        <button type="button" data-style="dense" aria-pressed="false">Dense rake</button>
+      </div>
+      <div class="seg" role="group" aria-label="Airflow colour">
+        <span>Airflow colour</span>
+        <button type="button" data-tint="0" aria-pressed="true">White smoke</button>
+        <button type="button" data-tint="1" aria-pressed="false">By pressure</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Aero numbers <span>live</span></h2>
+      <div class="numbers">
+        <div class="num"><span class="k">Downforce</span><span class="v" id="nDf">0<small>N</small></span></div>
+        <div class="num"><span class="k">Drag</span><span class="v" id="nDrag">0<small>N</small></span></div>
+        <div class="num"><span class="k">Lift coeff. C<sub>L</sub></span><span class="v" id="nCl">0</span></div>
+        <div class="num"><span class="k">Drag coeff. C<sub>D</sub></span><span class="v" id="nCd">0</span></div>
+        <div class="num"><span class="k">Efficiency L/D</span><span class="v" id="nLd">0</span></div>
+        <div class="num"><span class="k">Power to push air</span><span class="v" id="nPow">0<small>kW</small></span></div>
+        <div class="num"><span class="k">Side force</span><span class="v" id="nSide">0<small>N</small></span></div>
+        <div class="num"><span class="k">Dynamic pressure q</span><span class="v" id="nQ">0<small>Pa</small></span></div>
+        <div class="num balance">
+          <span class="k">Aero balance · <span id="nBal">43% front</span></span>
+          <div class="bal-bar"><i id="balFill" style="width:43%"></i></div>
+          <div class="bal-ends"><span>Front axle</span><span>Rear axle</span></div>
+        </div>
+      </div>
+      <div class="chart-wrap">
+        <p class="cap"><span><i style="border-color:var(--df)"></i>Downforce</span><span><i style="border-color:var(--drag);border-top-style:dashed"></i>Drag</span><span>kN vs km/h, this setup</span></p>
+        <canvas id="chart" aria-label="Downforce and drag versus speed chart"></canvas>
+      </div>
+    </section>
+
+    <section>
+      <h2>Aero features <span>tap to inspect</span></h2>
+      <div class="features" id="features"></div>
+    </section>
+
+    <section class="explain">
+      <h2>How to read it</h2>
+      <p><strong>Red</strong> means air is slowing down and pressing on the surface. <strong>Blue</strong> means it is speeding up and pulling, which is suction. A race car makes downforce by keeping blue under the car and on the wing's underside, and red on the top surfaces.</p>
+      <div class="formula">F = ½ · ρ · v² · A · C</div>
+      <p>Every aero force grows with the <strong>square</strong> of speed. At 150 km/h you get only a quarter of the 300 km/h load. That is why fast corners feel planted and slow hairpins feel loose.</p>
+      <p>Add <strong>yaw</strong> and the car meets the air at an angle. The windward side builds pressure, the floor loses its seal, and the wing sits partly in the cabin's shadow. Downforce drops, drag climbs, and the balance moves forward. That forward shift is why a car can go loose on the exit of a long corner.</p>
+    </section>
+
+    <footer class="foot">
+      <p id="footModel">A teaching model. Forces come from a simplified coefficient model tuned to typical GT3 figures, and the flow field is an analytic approximation. It is not McLaren or CFD data.</p>
+      <p><span id="footCar">The 720S GT3 EVO races in the LMGT3 class in Le Mans Ultimate.</span><span id="slipLink"></span></p>
+    </footer>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/environments/RoomEnvironment.js"></script>
+<script src="car-sdf.js"></script>
+<script>
+(() => {
+"use strict";
+
+// Set this to the Slipangle site URL to show a link in the footer.
+const SLIPANGLE_URL = "";
+if (SLIPANGLE_URL) {
+  document.getElementById("slipLink").innerHTML =
+    ' More GT3 setup and aero guides at <a href="' + SLIPANGLE_URL + '" target="_blank" rel="noopener">Slipangle</a>.';
+}
+
+const stageEl = document.getElementById("stage");
+if (typeof THREE === "undefined" || !THREE.OrbitControls) {
+  stageEl.insertAdjacentHTML("beforeend", '<div class="fallback">The 3D engine could not load. Check your connection and reload the page.</div>');
+  return;
+}
+
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const isSmall = window.matchMedia("(max-width: 880px)").matches;
+
+/* =========================================================
+   State
+   ========================================================= */
+// Background mode: open the page with #bg (or ?bg) to use it as a website background
+const BG_MODE = /(^|[?&#])bg(\b|$)/.test(location.search + location.hash);
+if (BG_MODE) document.documentElement.classList.add("bg-mode");
+
+const S = {
+  speed: 250, yaw: 0, wing: 7,          // targets from sliders
+  cSpeed: 250, cYaw: 0, cWing: 7,       // smoothed values that drive the scene
+  modes: { pressure: false, streamlines: true, smoke: true, particles: false, vectors: false, forces: true },
+  tint: 0,                              // airflow colour: 0 white smoke, 1 pressure
+  style: "glow",                        // smoke lines: CFD glow, clean tubes or dense rake
+  cine: false,                          // cinematic view: overlays hidden
+  pBlend: 0,                            // pressure heat-map blend 0..1
+  time: 0,
+};
+const RHO = 1.225, G = 9.81;
+const DEG = Math.PI / 180;
+
+/* =========================================================
+   The cars. Each entry holds what differs between them: the model and its distance field,
+   wheel hubs and wing hinge (measured by the tools/ scripts), the aero coefficients, the
+   flow-field features (rear wing, trailing vortices, diffuser, wake), where the smoke tubes
+   aim, and the feature notes. Car-local frame: +X forward, +Y up, Z across, metres.
+   ========================================================= */
+const CARS = {
+  mclaren: {
+    title: "McLaren 720S <em>GT3 EVO</em>", accent: "#ff8000",
+    glb: "mclaren-720s-gt3-evo.glb", sdf: null,             // its distance field ships in car-sdf.js
+    measured: null,                                          // MEASURED, below
+    wheels: {"FL": {"c": [1.2238, 0.3243, 0.8564], "axis": [-0.00073, 0.06617, 0.99781], "r": 0.341}, "FR": {"c": [1.2226, 0.3005, -0.8605], "axis": [-0.00025, -0.03865, 0.99925], "r": 0.339}, "RL": {"c": [-1.4709, 0.3811, 0.851], "axis": [0.0034, 0.06351, 0.99798], "r": 0.353}, "RR": {"c": [-1.4713, 0.3544, -0.8472], "axis": [-0.00084, -0.03471, 0.9994], "r": 0.353}},
+    hinge: { origin: [-2.1343, 1.1244, -0.4154], axis: [0.00056, 0.01462, 0.99989] },   // through the two pivot bolts
+    wing: { x: -2.18, y: 1.11, span: 0.91, g: 0.12, below: 0.18 },   // main plane centre and endplate inner faces
+    // C_L (downforce), C_D at the 7 deg reference wing; per-degree wing gains; aero balance (front share)
+    aero: { A: 1.95, CL: 1.18, CD: 0.365, dCL: 0.045, dCD: 0.0065, bal: 0.43, dBal: 0.012 },
+    floorGain: 1.12, diffuser: { x0: -1.65, w: 0.9 }, wake: { w: 1.05, h: 1.15 },
+    vortices: (W) => [
+      { x0: W.x + 0.1, y: W.y - 0.05, z: W.span, g: 0.085, rc2: 0.012, len: 3.5, sense: 1, wing: true }, // wing tips
+      { x0: XR + 0.35, y: 0.17, z: 0.62, g: 0.05, rc2: 0.01, len: 2.6, sense: 1 },                      // diffuser edges: outside air rolls down and in under the floor
+      { x0: XF - 0.25, y: 0.3, z: 1.0, g: 0.03, rc2: 0.008, len: 2.2, sense: 1 },                        // dive planes
+    ],
+    nose: { len: 0.4, y: 0.16 },          // splitter: within len of the nose and below y
+    screen: [-0.6, 1.2],                  // windscreen base / bonnet leading edges collect pressure here
+    clean: [
+      ["top", 1.45, -0.16, 0.055], ["top", 1.45, 0.16, 0.055], ["top", -0.1, 0, 0.055],
+      ["top", 1.15, -0.78, 0.06], ["top", 1.15, 0.78, 0.06],
+      ["side", 0.0, 0.45, -1, 0.06], ["side", 0.0, 0.45, 1, 0.06], ["under", 0.0, 0],
+    ],
+    // One tube per path, spread across the car. Only one runs down the centre line, so tubes
+    // never stack into a single over-bright band.
+    glow: [
+      ["under", 0.0, -0.45], ["under", 0.0, 0.0], ["under", 0.0, 0.45],                           // underfloor, out through the diffuser
+      ["side", 2.0, 0.15, -1, 0.05], ["side", 2.0, 0.15, 1, 0.05],                                 // splitter edges
+      ["side", 1.85, 0.34, -1, 0.06], ["side", 1.85, 0.34, 1, 0.06],                               // dive-plane vortex
+      ["side", 0.0, 0.3, -1, 0.06], ["side", 0.0, 0.3, 1, 0.06], ["side", -0.3, 0.6, -1, 0.06], ["side", -0.3, 0.6, 1, 0.06], // sidepods
+      ["abs", 0.59, 0.96, -0.92], ["abs", 0.59, 0.96, 0.92],                                       // over the wing mirrors
+      ["abs", 0.59, 0.82, -1.13], ["abs", 0.59, 0.82, 1.13],                                       // outboard of the mirrors
+      ["top", 1.2, -0.78, 0.07], ["top", 1.2, 0.78, 0.07], ["top", -1.0, -0.8, 0.07], ["top", -1.0, 0.8, 0.07],               // front and rear haunches
+      ["top", 1.5, -0.32, 0.07], ["top", 1.5, 0.32, 0.07],                                         // bonnet
+      ["top", 0.6, -0.45, 0.07], ["top", 0.6, 0.45, 0.07],                                         // A-pillars
+      ["top", -0.1, 0, 0.07],                                                                      // roof centre line
+      ["top", -1.6, -0.3, 0.07], ["top", -1.6, 0.3, 0.07],                                         // engine cover, under the wing
+      ["free", 0.05, 0.08, -0.4, "wing"], ["free", 0.05, 0.08, 0.4, "wing"],                       // over the wing
+      ["free", 0.0, -0.1, -0.6, "wing"], ["free", 0.0, -0.1, 0.6, "wing"],                         // under the wing
+      ["free", -0.25, 0.03, -0.06, "tip"], ["free", -0.25, 0.03, 0.06, "tip"],                     // into the wing-tip vortices
+    ],
+    features: [
+      { key: "splitter", name: "Front splitter", loc: "Nose", box: [[1.9, 0.0, 0.0], [2.5, 0.2, 1.15]], view: { p: [4.6, 0.8, 2.4], t: [1.9, 0.2, 0] },
+        text: "A flat blade at the nose. Air piles up on top of it, which pushes the front down. Air under it speeds up into the gap below the floor and drops in pressure." },
+      { key: "canards", name: "Dive planes", loc: "Front corners", box: [[1.75, 0.12, 0.62], [2.4, 0.5, 1.2]], view: { p: [4.0, 1.0, 3.2], t: [1.9, 0.35, 0.7] },
+        text: "Small winglets on the bumper corners. They add a little front downforce and roll up vortices that keep air from spilling under the car's sides." },
+      { key: "louvres", name: "Fender louvres", loc: "Front arches", box: [[0.9, 0.5, 0.4], [1.75, 0.95, 1.1]], view: { p: [3.4, 2.6, 2.8], t: [1.2, 0.65, 0.5] },
+        text: "A spinning wheel pumps air into its arch and raises the pressure inside. Vents on top let that air out, so the arch stops lifting the front." },
+      { key: "diffuser", name: "Underfloor & diffuser", loc: "Underbody", box: [[-2.5, 0.0, 0.0], [-1.45, 0.45, 1.0]], view: { p: [-5.2, 0.35, 2.0], t: [-2.0, 0.25, 0] },
+        text: "The floor and the ground form a channel. Air speeds up through it and the pressure falls. The diffuser at the back then widens the channel, which slows the air back down smoothly and pulls more of it through. Much of the car's downforce comes from the floor, with little drag cost." },
+      { key: "wing", name: "Rear wing", loc: "Tail", box: [[-2.55, 0.82, 0.0], [-1.8, 1.4, 1.1]], view: { p: [-4.4, 2.2, 3.0], t: [-2.1, 1.0, 0] },
+        text: "An upside-down aerofoil. Air on its curved underside travels faster and drops in pressure, while the top sees higher pressure. The difference pushes the rear axle down. The wake is thrown upward, which you can see in the particles." },
+    ],
+    wingNote: "More angle adds rear grip but costs top speed. The wing tilts on the car, drawn at 2× so small changes show.",
+    footModel: "A teaching model. Forces come from a simplified coefficient model tuned to typical GT3 figures, and the flow field is an analytic approximation. It is not McLaren or CFD data.",
+    footCar: "The 720S GT3 EVO races in the LMGT3 class in Le Mans Ultimate.",
+  },
+
+  redbull: {
+    title: "Red Bull Racing <em>F1</em>", accent: "#ffcc00",
+    glb: "redbull-f1.glb", sdf: "car-sdf-redbull.js",
+    measured: {"xf":2.882,"xr":-2.483,"w":[0.433,0.926,0.926,0.933,0.935,0.938,0.941,0.3,0.49,0.588,0.588,0.588,0.425,0.255,0.323,0.336,0.472,0.565,0.729,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.8,0.799,0.799,0.798,0.797,0.797,0.797,0.797,0.797,0.797,0.513,0.512,0.512,0.51,0.519,0.52,0.52,0.52,0.3],"yb":[0.146,0.096,0.099,0.106,0.108,0.116,0.119,0.2,0.407,0.113,0.245,0.113,0.11,0.088,0.085,0.085,0.085,0.099,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.12,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.085,0.139,0.115,0.174,0.232,0.34,0.432,0.452,0.2],"shoulder":[0.16,0.349,0.349,0.35,0.351,0.352,0.353,0.25,0.506,0.511,0.507,0.519,0.539,0.406,0.716,0.612,0.616,0.539,0.539,0.539,0.464,0.673,0.748,0.745,0.744,0.748,0.731,0.731,0.698,0.588,0.59,0.54,0.43,0.146,0.145,0.143,0.142,0.14,0.138,0.619,0.619,0.747,0.747,0.749,0.748,0.748,0.748,0.25],"roof":[0.24,0.254,0.259,0.271,0.271,0.0,0.0,0.0,0.606,0.595,0.616,0.797,0.802,0.406,0.808,0.813,0.91,0.969,1.046,1.06,1.06,1.056,1.036,0.827,0.893,1.242,1.347,1.347,1.337,1.226,1.226,1.22,0.085,1.209,1.206,1.2,1.116,1.03,0.969,0.848,0.784,0.74,1.17,1.173,1.147,1.168,0.588,0.0],"roofW":[0.124,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.258,0.254,0.302,0.19,0.166,0.0,0.184,0.185,0.193,0.215,0.401,0.402,0.276,0.739,0.747,0.761,0.324,0.293,0.3,0.3,0.298,0.349,0.391,0.396,0.43,0.402,0.379,0.357,0.326,0.31,0.395,0.09,0.085,0.52,0.52,0.52,0.52,0.52,0.52,0.0],"height":1.337,"axles":{"front":1.759,"rear":-1.759}},
+    wheels: {"FL": {"c": [1.7586, 0.3582, 0.7918], "axis": [0.0, 0.0, 1.0], "r": 0.358}, "FR": {"c": [1.7586, 0.3582, -0.7918], "axis": [0.0, 0.0, 1.0], "r": 0.358}, "RL": {"c": [-1.7586, 0.3582, 0.7473], "axis": [0.0, 0.0, 1.0], "r": 0.358}, "RR": {"c": [-1.7586, 0.3582, -0.7473], "axis": [0.0, 0.0, 1.0], "r": 0.358}},
+    hinge: {"origin": [-2.1184, 1.1018, 0.0], "axis": [0, 0, 1]},                // the upper flap pivots at its leading edge, like DRS
+    wing: { x: -2.15, y: 1.08, span: 0.5, g: 0.15, below: 0.14 },
+    aero: { A: 1.5, CL: 3.2, CD: 0.86, dCL: 0.08, dCD: 0.014, bal: 0.42, dBal: 0.01 },
+    floorGain: 1.2, diffuser: { x0: -1.45, w: 0.55 }, wake: { w: 0.95, h: 1.2 },
+    vortices: (W) => [
+      { x0: W.x + 0.1, y: W.y + 0.05, z: W.span, g: 0.1, rc2: 0.01, len: 3.5, sense: 1, wing: true },  // rear wing tips
+      { x0: XF - 0.45, y: 0.3, z: 0.93, g: 0.05, rc2: 0.008, len: 2.6, sense: 1 },                    // front wing endplates: outwash round the front tyres
+      { x0: XF - 0.6, y: 0.2, z: 0.25, g: 0.035, rc2: 0.006, len: 3.2, sense: -1 },                   // inboard front wing (Y250) vortex, down the floor edge
+      { x0: XR + 0.55, y: 0.16, z: 0.5, g: 0.04, rc2: 0.008, len: 2.4, sense: 1 },                    // diffuser edges
+    ],
+    nose: { len: 0.75, y: 0.38 },         // the front wing
+    screen: [0.2, 1.4],
+    clean: [
+      ["top", 1.6, 0, 0.06], ["top", 0.6, 0, 0.07], ["top", -0.6, 0, 0.07],
+      ["abs", 2.55, 0.42, -0.55], ["abs", 2.55, 0.42, 0.55],
+      ["side", -0.4, 0.42, -1, 0.06], ["side", -0.4, 0.42, 1, 0.06], ["under", 0.0, 0],
+    ],
+    glow: [
+      ["under", 0.0, -0.45], ["under", 0.0, 0.0], ["under", 0.0, 0.45],                            // under the floor, out through the diffuser
+      ["abs", 2.55, 0.42, -0.62], ["abs", 2.55, 0.42, 0.62],                                         // over the front wing flaps
+      ["abs", 2.45, 0.24, -0.98], ["abs", 2.45, 0.24, 0.98],                                         // round the endplates, outside the tyres
+      ["abs", 2.2, 0.42, -0.32], ["abs", 2.2, 0.42, 0.32],                                          // beside the nose, over the inner flaps
+      ["abs", 1.76, 0.78, -0.8], ["abs", 1.76, 0.78, 0.8],                                          // over the front tyres
+      ["top", 1.7, -0.1, 0.06], ["top", 1.7, 0.1, 0.06],                                            // nose
+      ["abs", 1.15, 0.4, -0.48], ["abs", 1.15, 0.4, 0.48],                                          // inside the front tyres, to the bargeboards
+      ["side", -0.4, 0.45, -1, 0.06], ["side", -0.4, 0.45, 1, 0.06],                                // sidepods
+      ["top", -0.6, -0.55, 0.07], ["top", -0.6, 0.55, 0.07],                                        // sidepod tops
+      ["top", 0.75, 0, 0.07],                                                                       // over the halo
+      ["top", -0.7, -0.22, 0.07], ["top", -0.7, 0.22, 0.07],                                        // engine cover
+      ["free", 0.05, 0.08, -0.25, "wing"], ["free", 0.05, 0.08, 0.25, "wing"],                      // over the rear wing
+      ["free", 0.05, -0.16, -0.3, "wing"], ["free", 0.05, -0.16, 0.3, "wing"],                      // under the rear wing, over the beam wing
+      ["free", -0.2, 0.03, -0.05, "tip"], ["free", -0.2, 0.03, 0.05, "tip"],                        // into the wing-tip vortices
+    ],
+    features: [
+      { key: "fwing", name: "Front wing", loc: "Nose", box: [[2.1, 0.0, 0.0], [3.0, 0.42, 1.0]], view: { p: [5.2, 1.0, 2.6], t: [2.4, 0.25, 0] },
+        text: "A multi-element wing, upside down so it pushes the nose onto the road: about a third of the car's downforce. Its endplates also steer air outward round the front tyres, whose turbulent wake would otherwise spoil the floor." },
+      { key: "barge", name: "Bargeboards", loc: "Beside the cockpit", box: [[0.15, 0.05, 0.2], [1.3, 0.62, 0.86]], view: { p: [3.0, 1.1, 3.4], t: [0.7, 0.35, 0.4] },
+        text: "Vertical vanes between the front wheels and the sidepods. They tidy the messy air coming off the front tyres and roll it into vortices that run down the floor edges, sealing the low-pressure air under the car from the outside." },
+      { key: "floor", name: "Floor & diffuser", loc: "Underbody", box: [[-2.4, 0.0, 0.0], [-1.2, 0.45, 0.85]], view: { p: [-5.0, 0.35, 2.2], t: [-1.9, 0.2, 0] },
+        text: "An F1 car runs a few centimetres off the road with a flat floor. Air rushes through that gap and its pressure drops, and the diffuser at the back lets it slow down smoothly so more air is pulled through. The floor is the most efficient downforce on the car: lots of grip for little drag." },
+      { key: "wing", name: "Rear wing & DRS", loc: "Tail", box: [[-2.55, 0.92, 0.0], [-1.8, 1.22, 0.54]], view: { p: [-4.2, 2.3, 2.8], t: [-2.1, 1.0, 0] },
+        text: "Two elements high up at the back, plus a small beam wing below. On the straights the driver can open the upper flap (DRS), which stalls the wing: drag falls and the car gains 10 to 15 km/h. Turn the wing angle down to see the flap open." },
+      { key: "halo", name: "Halo & airbox", loc: "Cockpit", box: [[-0.5, 0.75, 0.0], [1.0, 1.4, 0.4]], view: { p: [2.6, 2.4, 2.6], t: [0.2, 0.9, 0] },
+        text: "The airbox above the driver's head feeds the engine with ram air, slowed down so its pressure rises. The titanium halo protects the driver's head; it adds a little drag, so teams shape a fairing on it." },
+    ],
+    wingNote: "The upper flap of the rear wing. Less angle opens it like DRS: less drag, less rear grip. Drawn at 2× so small changes show.",
+    footModel: "A teaching model. Forces come from a simplified coefficient model tuned to typical Formula 1 figures, and the flow field is an analytic approximation. It is not Red Bull or CFD data.",
+    footCar: "Formula 1 cars from 2017 to 2021 made most of their downforce from wings and bargeboards; the 2022 rules moved it to the floor.",
+  },
+
+  valkyrie: {
+    title: "Aston Martin <em>Valkyrie</em>", accent: "#bfe600",
+    glb: "aston-martin-valkyrie.glb", sdf: "car-sdf-valkyrie.js",
+    measured: {"xf":2.259,"xr":-2.132,"w":[0.748,0.853,0.925,0.931,0.922,0.918,0.937,0.943,0.941,0.948,0.948,0.94,0.939,0.935,0.949,0.968,0.968,0.86,0.828,0.845,0.875,0.795,0.798,0.804,0.874,0.928,0.944,0.932,0.949,0.95,0.951,0.952,0.953,0.953,0.953,0.953,0.954,0.954,0.954,0.955,0.956,0.955,0.953,0.944,0.904,0.866,0.796,0.606],"yb":[0.119,0.119,0.113,0.11,0.115,0.11,0.098,0.096,0.147,0.169,0.182,0.155,0.176,0.105,0.102,0.206,0.25,0.248,0.143,0.116,0.114,0.13,0.175,0.121,0.114,0.115,0.107,0.102,0.087,0.086,0.088,0.086,0.087,0.083,0.083,0.083,0.083,0.098,0.098,0.09,0.089,0.089,0.083,0.084,0.262,0.22,0.168,0.262],"shoulder":[0.237,0.405,0.442,0.503,0.566,0.608,0.65,0.713,0.73,0.736,0.738,0.736,0.73,0.71,0.69,0.669,0.656,0.749,0.736,0.731,0.753,0.87,0.829,0.716,0.737,0.754,0.708,0.726,0.699,0.694,0.682,0.698,0.723,0.75,0.771,0.797,0.814,0.814,0.807,0.802,0.816,0.809,0.791,0.755,0.737,0.731,0.784,0.817],"roof":[0.465,0.487,0.524,0.551,0.562,0.588,0.608,0.67,0.705,0.757,0.785,0.775,0.88,0.891,0.897,0.936,0.988,0.988,1.003,1.02,1.027,1.032,1.034,1.033,1.027,1.02,1.007,1.048,1.041,1.032,1.012,1.0,0.99,0.978,0.969,0.881,0.851,0.82,0.799,0.779,0.755,0.743,0.724,0.706,0.771,0.81,0.815,0.832],"roofW":[0.347,0.07,0.32,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.177,0.206,0.259,0.438,0.464,0.443,0.43,0.413,0.41,0.408,0.425,0.41,0.399,0.381,0.488,0.457,0.45,0.455,0.437,0.412,0.395,0.332,0.27,0.112,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.021,0.0,0.0],"height":1.03,"axles":{"front":1.36,"rear":-1.36}},
+    wheels: {"FL": {"c": [1.3648, 0.3486, 0.8365], "axis": [0.00537, -0.00048, 0.99999], "r": 0.349}, "FR": {"c": [1.3558, 0.3486, -0.8365], "axis": [0.00539, 0.00037, 0.99999], "r": 0.349}, "RL": {"c": [-1.3561, 0.3486, 0.7829], "axis": [0.00537, -0.00052, 0.99999], "r": 0.349}, "RR": {"c": [-1.3645, 0.3486, -0.7829], "axis": [0.00534, 0.0007, 0.99999], "r": 0.349}},
+    hinge: {"origin": [-1.8079, 0.717, 0.0], "axis": [0, 0, 1]},               // the blade pivots at its leading edge, like the real active wing
+    wing: { x: -1.96, y: 0.76, span: 0.58, g: 0.1, below: 0.08 },
+    aero: { A: 1.75, CL: 2.2, CD: 0.42, dCL: 0.05, dCD: 0.007, bal: 0.4, dBal: 0.01 },
+    floorGain: 1.3, diffuser: { x0: -1.2, w: 0.8 }, wake: { w: 1.0, h: 1.05 },
+    vortices: (W) => [
+      { x0: W.x + 0.1, y: W.y - 0.02, z: W.span, g: 0.075, rc2: 0.01, len: 3.2, sense: 1, wing: true }, // wing tips
+      { x0: XR + 0.4, y: 0.2, z: 0.7, g: 0.06, rc2: 0.01, len: 2.8, sense: 1 },                         // venturi tunnel / diffuser edges
+      { x0: XF - 0.3, y: 0.28, z: 0.92, g: 0.03, rc2: 0.008, len: 2.2, sense: 1 },                      // front corners
+    ],
+    nose: { len: 0.45, y: 0.22 },
+    screen: [0.2, 1.6],
+    clean: [
+      ["top", 1.6, 0, 0.06], ["top", 0.3, 0, 0.07], ["top", -1.0, 0, 0.07],
+      ["top", 1.4, -0.75, 0.07], ["top", 1.4, 0.75, 0.07],
+      ["side", -0.4, 0.45, -1, 0.06], ["side", -0.4, 0.45, 1, 0.06], ["under", -0.4, 0],
+    ],
+    glow: [
+      ["under", -0.6, -0.42], ["under", -0.6, 0.0], ["under", -0.6, 0.42],                         // through the venturi tunnels
+      ["side", 2.0, 0.16, -1, 0.05], ["side", 2.0, 0.16, 1, 0.05],                                  // splitter edges
+      ["top", 1.85, -0.28, 0.06], ["top", 1.85, 0.28, 0.06],                                        // nose
+      ["top", 1.4, -0.8, 0.07], ["top", 1.4, 0.8, 0.07],                                            // over the front fenders
+      ["side", 0.9, 0.42, -1, 0.06], ["side", 0.9, 0.42, 1, 0.06],                                  // behind the fenders
+      ["side", -0.4, 0.45, -1, 0.06], ["side", -0.4, 0.45, 1, 0.06],                                // flanks
+      ["top", 0.5, -0.3, 0.07], ["top", 0.5, 0.3, 0.07],                                            // canopy
+      ["top", 0.0, 0, 0.07],                                                                        // roof spine
+      ["top", -1.3, -0.75, 0.07], ["top", -1.3, 0.75, 0.07],                                        // rear haunches
+      ["free", 0.06, 0.06, -0.3, "wing"], ["free", 0.06, 0.06, 0.3, "wing"],                        // over the wing
+      ["free", 0.04, -0.07, -0.35, "wing"], ["free", 0.04, -0.07, 0.35, "wing"],                    // under the wing
+      ["free", -0.2, 0.02, -0.05, "tip"], ["free", -0.2, 0.02, 0.05, "tip"],                        // into the wing-tip vortices
+    ],
+    features: [
+      { key: "splitter", name: "Front splitter & inlets", loc: "Nose", box: [[1.7, 0.0, 0.0], [2.35, 0.4, 1.0]], view: { p: [4.6, 0.8, 2.4], t: [1.8, 0.25, 0] },
+        text: "The nose is split into a central keel and two big inlets. Air that goes under the car is fed straight into the venturi tunnels, so the front is planted by the floor rather than by a big front wing." },
+      { key: "pods", name: "Floating front fenders", loc: "Front wheels", box: [[0.9, 0.2, 0.55], [1.9, 0.95, 1.0]], view: { p: [3.6, 1.5, 3.2], t: [1.2, 0.5, 0.6] },
+        text: "The front wheel covers stand apart from the cabin. The open channel between them lets air flow down the car's sides to the tunnels and the rear wing, instead of piling up in front of a wide body." },
+      { key: "tunnels", name: "Venturi tunnels", loc: "Underbody", box: [[-1.6, 0.0, 0.1], [1.0, 0.32, 0.75]], view: { p: [-4.6, 0.25, 3.2], t: [-0.6, 0.25, 0] },
+        text: "Two huge tunnels run under the car, rising towards the back like an upside-down wing. Air speeds up through them and its pressure drops: most of the Valkyrie's downforce comes from here, which keeps the top of the car clean and smooth." },
+      { key: "wing", name: "Active rear wing", loc: "Tail", box: [[-2.15, 0.66, 0.0], [-1.78, 0.86, 0.62]], view: { p: [-4.2, 2.0, 2.8], t: [-1.9, 0.75, 0] },
+        text: "A wide blade between the rear fenders. On the real car it moves: flattened for top speed, raised under braking and in fast corners. Turn the wing angle up and down to see it pivot." },
+      { key: "diffuser", name: "Diffuser", loc: "Tail", box: [[-2.2, 0.0, 0.0], [-1.3, 0.55, 0.9]], view: { p: [-5.2, 0.35, 2.0], t: [-1.9, 0.25, 0] },
+        text: "Where the tunnels end, they sweep up steeply. The air slows down and its pressure recovers, which pulls even more air through the tunnels. The slower air leaves in the two big vortices you can see at the tail." },
+    ],
+    wingNote: "More angle adds rear grip but costs top speed. The blade pivots on the car, drawn at 2× so small changes show.",
+    footModel: "A teaching model. Forces come from a simplified coefficient model tuned to published Valkyrie figures, and the flow field is an analytic approximation. It is not Aston Martin or CFD data.",
+    footCar: "The Valkyrie was designed with Red Bull's Adrian Newey: an F1-style car for the road, with its downforce made mostly by the floor.",
+  },
+};
+let CAR_ID = "mclaren", CAR = CARS.mclaren;
+
+/* =========================================================
+   Aero model (simplified, illustrative)
+   ========================================================= */
+const WING_REF_DEG = 7;      // the wing angle each model was built at
+function aero(speedKmh, yawDeg, wingDeg) {
+  const P = CAR.aero, A = P.A;
+  const v = speedKmh / 3.6;
+  const q = 0.5 * RHO * v * v;
+  const y2 = yawDeg * yawDeg;
+  const CL0 = P.CL + P.dCL * (wingDeg - WING_REF_DEG);
+  const CD0 = P.CD + P.dCD * (wingDeg - WING_REF_DEG);
+  const CL = CL0 * (1 - 0.0009 * y2);        // downforce coefficient magnitude
+  const CD = CD0 * (1 + 0.0011 * y2);
+  const CS = 0.028 * yawDeg;
+  const bal = Math.min(0.6, Math.max(0.3, P.bal - P.dBal * (wingDeg - WING_REF_DEG) + 0.0035 * yawDeg));
+  const df = q * A * CL, drag = q * A * CD, side = q * A * CS;
+  return { q, CL, CD, CS, bal, df, drag, side, power: drag * v / 1000, ld: CL / CD };
+}
+const Q300 = 0.5 * RHO * Math.pow(300 / 3.6, 2);
+
+/* =========================================================
+   Car geometry definition (shared by the mesh and the flow field)
+   Car-local frame: +X forward (nose at +2.3), +Y up, Z across.
+   ========================================================= */
+let XF = 2.3, XR = -2.3, LEN = XF - XR;
+
+function makeTable(ts, vals, n = 400, smooth = 6) {
+  const out = new Float32Array(n + 1);
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    let k = 0; while (k < ts.length - 2 && t > ts[k + 1]) k++;
+    const u = Math.min(1, Math.max(0, (t - ts[k]) / (ts[k + 1] - ts[k])));
+    out[i] = vals[k] + (vals[k + 1] - vals[k]) * u;
+  }
+  for (let p = 0; p < smooth; p++) {
+    const c = out.slice();
+    for (let i = 1; i < n; i++) out[i] = (c[i - 1] + 2 * c[i] + c[i + 1]) / 4;
+  }
+  return (t) => {
+    const f = Math.min(n, Math.max(0, t * n)); const i = Math.floor(f); const r = f - i;
+    return i >= n ? out[n] : out[i] + (out[i + 1] - out[i]) * r;
+  };
+}
+
+// Body: t = 0 at the nose, 1 at the tail
+const BT = [0, .03, .08, .15, .22, .30, .45, .60, .72, .80, .88, .95, 1];
+let bodyW  = makeTable(BT, [.50, .82, .94, 1.0, 1.0, .96, .94, .97, 1.02, 1.02, 1.0, .97, .92]);
+let bodyYb = makeTable(BT, [.22, .13, .10, .10, .10, .10, .10, .10, .10, .10, .12, .16, .20]);
+let bodyYt = makeTable(BT, [.26, .45, .56, .63, .69, .75, .82, .88, .93, .95, .95, .92, .82]);
+// Cabin (greenhouse), defined on body t between CT0 and CT1
+let CT0 = .30, CT1 = .76;
+const CTs = [0, .13, .33, .55, .78, 1];
+let cabW  = makeTable(CTs, [.46, .60, .63, .61, .52, .38], 400, 4);
+let cabYt = makeTable(CTs, [0, .98, 1.16, 1.17, 1.06, 0], 400, 4);   // 0 = sits on body
+
+function tOf(x) { return (XF - x) / LEN; }
+function bodySec(x) {
+  const t = Math.min(1, Math.max(0, tOf(x)));
+  const w = bodyW(t), yb = bodyYb(t), yt = bodyYt(t);
+  return { w, yc: (yb + yt) / 2, hh: Math.max(0.012, (yt - yb) / 2) };
+}
+function cabSec(x) {
+  const tb = Math.min(1, Math.max(0, tOf(x)));
+  const u = Math.min(1, Math.max(0, (tb - CT0) / (CT1 - CT0)));
+  const bt = bodyYt(tb);
+  const yb = bt - 0.06;
+  const yt = Math.max(bt + 0.01, cabYt(u));
+  return { w: cabW(u), yc: (yb + yt) / 2, hh: Math.max(0.012, (yt - yb) / 2) };
+}
+let CAB_XF = XF - CT0 * LEN, CAB_XR = XF - CT1 * LEN;
+let AXLE_F = 1.45, AXLE_R = -1.3;
+
+// Outline measured from the detailed 3D model (tools/usdz_to_glb.py), nose -> tail
+const MEASURED = {"xf":2.283,"xr":-2.352,"w":[0.509,0.763,0.897,0.959,1.019,1.021,1.022,1.023,1.025,1.03,1.032,1.032,1.029,1.026,1.023,1.021,1.0,1.039,1.05,0.983,0.977,0.889,0.915,0.904,0.973,0.982,0.984,0.984,0.985,0.978,0.99,0.998,1.006,1.019,1.024,1.024,1.025,1.027,1.029,1.029,1.026,1.021,1.019,1.002,0.972,0.738,0.626,0.927],"yb":[0.047,0.033,0.035,0.036,0.028,0.042,0.045,0.042,0.057,0.032,0.045,0.049,0.052,0.057,0.061,0.05,0.122,0.108,0.106,0.115,0.09,0.11,0.157,0.16,0.097,0.109,0.088,0.086,0.114,0.164,0.19,0.07,0.071,0.073,0.069,0.075,0.066,0.048,0.047,0.04,0.062,0.125,0.208,0.23,0.231,0.261,0.115,0.894],"shoulder":[0.073,0.395,0.422,0.504,0.558,0.598,0.658,0.693,0.705,0.722,0.729,0.731,0.73,0.733,0.746,0.795,0.848,0.913,0.945,1.007,1.008,1.011,1.016,1.017,1.015,1.0,0.997,0.96,0.96,0.91,0.895,0.877,0.884,0.884,0.871,0.875,0.874,0.869,0.854,0.855,0.862,0.854,0.811,0.917,0.892,0.783,0.568,0.933],"roof":[0.387,0.441,0.486,0.532,0.563,0.595,0.594,0.286,0.638,0.684,0.716,0.737,0.751,0.795,0.751,0.879,0.948,0.987,1.022,1.076,1.142,1.145,1.131,1.212,1.214,1.13,1.145,1.234,1.301,1.076,1.059,1.038,1.011,0.979,0.962,0.918,0.895,0.891,0.848,0.845,0.823,0.797,0.79,0.768,0.749,0.766,0.765,0.0],"roofW":[0.277,0.048,0.587,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.339,0.531,0.54,0.448,0.352,0.5,0.368,0.386,0.418,0.498,0.496,0.498,0.495,0.458,0.512,0.469,0.52,0.515,0.516,0.454,0.411,0.425,0.302,0.0,0.0,0.0,0.0,0.0,0.0,0.427,0.926,0.929,0.923,0.428,0.931],"height":1.211,"axles":{"front":1.224,"rear":-1.471}};
+function useMeasuredOutline() {
+  const M = CAR.measured || MEASURED, n = M.w.length;
+  const ts = M.w.map((_, i) => i / (n - 1));
+  const fix = (a) => { a = a.slice(); a[n - 1] = a[n - 2]; return a; };
+  const w = fix(M.w), yb = fix(M.yb).map((v) => Math.min(0.24, Math.max(0.05, v)));
+  const top = fix(M.shoulder).map((v) => Math.min(0.9, v));
+  const roof = fix(M.roof).map((v) => Math.min(1.2, v));
+  const rw = fix(M.roofW);
+  XF = M.xf; XR = M.xr; LEN = XF - XR;
+  bodyW = makeTable(ts, w, 400, 8);
+  bodyYb = makeTable(ts, yb, 400, 8);
+  bodyYt = makeTable(ts, top, 400, 8);
+  CT0 = 0; CT1 = 1; CAB_XF = XF; CAB_XR = XR;
+  cabYt = makeTable(ts, roof.map((r, i) => (r > top[i] + 0.04 ? r : 0)), 400, 6);
+  cabW = makeTable(ts, rw.map((v) => Math.min(0.6, Math.max(0.32, v > 0.25 ? v : 0.45))), 400, 6);
+  AXLE_F = M.axles.front; AXLE_R = M.axles.rear;
+  Object.assign(WING, CAR.wing);
+  USE_GRID = !!SDF_GRID;
+  placeVortices();
+}
+
+// Approximate signed distance to a superelliptic loft
+function loftSD(x, y, z, sec, x0, x1) {
+  const cx = Math.min(x0, Math.max(x1, x));
+  const s = sec(cx);
+  const zz = z / s.w, yy = (y - s.yc) / s.hh;
+  const z2 = zz * zz, y2 = yy * yy;
+  const F = Math.sqrt(Math.sqrt(z2 * z2 + y2 * y2)) + 1e-6;
+  const r = Math.sqrt(z * z + (y - s.yc) * (y - s.yc));
+  const dc = r * (F - 1) / F;
+  const dx = Math.max(x - x0, x1 - x);
+  if (dx > 0) return dc > 0 ? Math.hypot(dc, dx) : dx;
+  return Math.max(dc, dx);
+}
+// Signed-distance grid baked from the real mesh (tools/build_sdf.py, car-sdf.js). Used once the
+// detailed model is on screen; the lofts above remain for the simplified stand-in car.
+function decodeSDF(G) {
+  if (!G) return null;
+  const bin = atob(G.data), q = new Int8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) q[i] = (bin.charCodeAt(i) << 24) >> 24;
+  return { q, o: G.origin, s: G.step, nx: G.dims[0], ny: G.dims[1], nz: G.dims[2] };
+}
+let SDF_GRID = decodeSDF(window.CAR_SDF);
+let USE_GRID = false;
+function gridSD(x, y, z) {
+  const g = SDF_GRID;
+  let fx = (x - g.o[0]) / g.s, fy = (y - g.o[1]) / g.s, fz = (z - g.o[2]) / g.s;
+  // outside the grid: clamp to its edge and add the distance travelled beyond it
+  const cx = Math.min(g.nx - 1.001, Math.max(0, fx)), cy = Math.min(g.ny - 1.001, Math.max(0, fy)), cz = Math.min(g.nz - 1.001, Math.max(0, fz));
+  const extra = Math.hypot(fx - cx, fy - cy, fz - cz) * g.s;
+  const i = cx | 0, j = cy | 0, k = cz | 0, u = cx - i, v = cy - j, w = cz - k;
+  const NZ = g.nz, NYZ = g.ny * NZ, b = i * NYZ + j * NZ + k, q = g.q;
+  const c00 = q[b] * (1 - w) + q[b + 1] * w, c01 = q[b + NZ] * (1 - w) + q[b + NZ + 1] * w;
+  const c10 = q[b + NYZ] * (1 - w) + q[b + NYZ + 1] * w, c11 = q[b + NYZ + NZ] * (1 - w) + q[b + NYZ + NZ + 1] * w;
+  return ((c00 * (1 - v) + c01 * v) * (1 - u) + (c10 * (1 - v) + c11 * v) * u) * 0.01 + extra;
+}
+function carSD(x, y, z) {
+  if (USE_GRID) return gridSD(x, y, z);
+  const b = loftSD(x, y, z, bodySec, XF, XR);
+  if (y < 0.7 && Math.abs(x) < 3) return b;
+  return Math.min(b, loftSD(x, y, z, cabSec, CAB_XF, CAB_XR));
+}
+
+/* =========================================================
+   Flow field (analytic approximation, car-local frame)
+   ========================================================= */
+var WING = { x: -2.14, y: 1.30, span: 0.93, g: 0.12, below: 0.18 };
+// Trailing vortex cores in the car frame (|z| side). sense +1 rolls air outward over the top.
+const VORTICES = [];
+function placeVortices() {
+  VORTICES.length = 0;
+  VORTICES.push(...CAR.vortices(WING));
+}
+placeVortices();
+const flow = { ux: -1, uz: 0, load: 1 };  // local free-stream direction + wing load factor
+
+function noise3(x, y, z, t) {
+  return Math.sin(x * 2.3 + t * 3.1 + Math.sin(z * 3.7 + t)) * Math.cos(y * 4.1 - t * 2.3 + z * 1.3);
+}
+
+// Writes velocity (units of free-stream speed) and pressure coefficient into out[0..3]
+function field(x, y, z, t, out) {
+  let vx = flow.ux, vy = 0, vz = flow.uz;
+  const d = carSD(x, y, z);
+  let wake = 0;
+
+  if (d < 0.9) {
+    const h = 0.025;
+    let nx = carSD(x + h, y, z) - carSD(x - h, y, z);
+    let ny = carSD(x, y + h, z) - carSD(x, y - h, z);
+    let nz = carSD(x, y, z + h) - carSD(x, y, z - h);
+    const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+    const dp = Math.max(d, 0);
+    const k = Math.exp(-dp / 0.28);
+    const un = flow.ux * nx + flow.uz * nz;
+    const vn = vx * nx + vy * ny + vz * nz;
+    if (vn < 0) {
+      vx -= vn * nx * k; vy -= vn * ny * k; vz -= vn * nz * k;
+      // steer stagnating air over / under / around the nose
+      const push = -vn * k * 0.55;
+      // over the top, or under the nose, but never down into the road (tyres, sills)
+      vy += push * (y > 0.24 ? 1 : y > 0.12 ? -0.6 : 0.3);
+      vz += push * 0.35 * Math.sign(z || 1);
+    }
+    const tang = 1 - un * un;
+    // around the rear wing its own circulation (below) sets the speeds, not this generic speed-up
+    const nearWing = x < WING.x + 0.4 && x > WING.x - 0.45 && y > WING.y - 0.3 && Math.abs(z) < WING.span + 0.05;
+    const boost = nearWing ? 1 : 1 + 0.42 * tang * Math.exp(-dp / 0.32) * (ny > -0.4 ? 1 : 0.6);
+    vx *= boost; vy *= boost; vz *= boost;
+    if (d < 0) { const p = -d * 9; vx += nx * p; vy += ny * p; vz += nz * p; }
+  }
+
+  // Underfloor venturi
+  if (x < XF && x > XR - 0.1) {
+    const s = bodySec(x);
+    const yb = s.yc - s.hh;
+    if (y < yb + 0.02 && Math.abs(z) < s.w * 0.9) {
+      const g = CAR.floorGain + 0.1 * flow.load;   // floor venturi: Cp around -1 to -1.4 on a GT3 floor, lower still on ground-effect cars
+      vx *= g; vz *= g;
+    }
+  }
+  // Diffuser upsweep
+  const D = CAR.diffuser;
+  if (x < D.x0 && x > XR - 1 && y < 0.5 && Math.abs(z) < D.w) {
+    const pr = Math.min(1, (D.x0 - x) / 0.7);
+    vy += 0.28 * pr * (1 - y / 0.5);
+  }
+  // Rear wing: bound vortex (inverted aerofoil) + tip vortices
+  {
+    const L = flow.load;
+    const dx = x - WING.x, dy = y - WING.y;
+    const az = Math.abs(z);
+    const sw = az < WING.span ? 1 : Math.max(0, 1 - (az - WING.span) / 0.25);
+    if (sw > 0) {
+      const r2 = dx * dx + dy * dy + 0.02;
+      const Gm = WING.g * L * sw;        // bound vortex: slower air (pressure) on top, faster (suction) underneath
+      vx += Gm * dy / r2;
+      vy += -Gm * dx / r2;
+    }
+  }
+  // Trailing vortices (Lamb-Oseen cores), mirrored either side of the car:
+  // rear-wing tips, diffuser edges and the dive-plane vortex that runs down the flanks.
+  {
+    const L = flow.load, az = Math.abs(z), sz = Math.sign(z || 1);
+    for (const V of VORTICES) {
+      if (x > V.x0) continue;
+      const dy = y - V.y, dz = az - V.z;
+      const r2 = dy * dy + dz * dz;
+      if (r2 > 0.6) continue;
+      const r = Math.sqrt(r2) + 1e-4;
+      const decay = Math.exp((x - V.x0) / V.len);
+      const vth = V.g * (V.wing ? L : 1) * decay / r * (1 - Math.exp(-r2 / V.rc2));
+      vy += -V.sense * vth * dz / r;
+      vz += sz * V.sense * vth * dy / r;
+    }
+  }
+  // Wake behind the car
+  if (x < XR + 0.05) {
+    const ax = XR - x;
+    const wz = Math.max(0, 1 - Math.pow(Math.abs(z) / CAR.wake.w, 4));
+    const wy = y < CAR.wake.h ? 1 : Math.max(0, 1 - (y - CAR.wake.h) / 0.4);
+    wake = Math.exp(-ax / 3.2) * wz * wy;
+    if (wake > 0) {
+      vx *= 1 - 0.55 * wake; vz *= 1 - 0.55 * wake;
+      const n1 = noise3(x, y, z, t), n2 = noise3(z + 7, x * .7, y, t * 1.3);
+      vy += n1 * 0.32 * wake;
+      vz += n2 * 0.32 * wake;
+      vx += Math.abs(n2) * 0.1 * wake;
+    }
+  }
+  // Ground
+  if (y < 0.03 && vy < 0) vy = 0;
+  // Air always moves on: keep a small downstream component so paths can't stall at
+  // stagnation points (nose, tyre faces) and wander on the spot.
+  const fwd = vx * flow.ux + vz * flow.uz;
+  if (fwd < 0.15) { vx += (0.15 - fwd) * flow.ux; vz += (0.15 - fwd) * flow.uz; }
+
+  const sp2 = vx * vx + vy * vy + vz * vz;
+  let cp = 1 - sp2;
+  if (wake > 0) cp = cp * (1 - wake) + (-0.35) * wake;
+  out[0] = vx; out[1] = vy; out[2] = vz; out[3] = Math.max(-2, Math.min(1, cp));
+  return out;
+}
+
+/* =========================================================
+   Colour map: blue (low pressure) -> neutral -> red (high)
+   ========================================================= */
+const STOPS = [
+  [-1.0, 0x1b3bff], [-0.62, 0x1f7bff], [-0.3, 0x3cc8ff], [0, 0xb9c6d2],
+  [0.3, 0xffd23f], [0.65, 0xff7a1a], [1.0, 0xff2a2a],
+].map(([v, h]) => [v, ((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255]);
+function heat(v, out) {
+  v = Math.max(-1, Math.min(1, v));
+  let i = 0; while (i < STOPS.length - 2 && v > STOPS[i + 1][0]) i++;
+  const a = STOPS[i], b = STOPS[i + 1];
+  const u = (v - a[0]) / (b[0] - a[0]);
+  out[0] = a[1] + (b[1] - a[1]) * u; out[1] = a[2] + (b[2] - a[2]) * u; out[2] = a[3] + (b[3] - a[3]) * u;
+  return out;
+}
+// Scale a colour toward black when it sits near ambient, so the interesting flow stands out
+function emphasise(v, out, floor) {
+  const k = floor + (1 - floor) * Math.min(1, Math.abs(v) * 2.2);
+  out[0] *= k; out[1] *= k; out[2] *= k; return out;
+}
+// Pressure coefficient scaled by speed into the colour domain
+function cpToHeat(cp) {
+  const s = S.cSpeed * S.cSpeed / (300 * 300);
+  const p = cp * s;
+  return p < 0 ? p / 1.1 : p / 0.8;
+}
+
+/* =========================================================
+   Three.js scene
+   ========================================================= */
+const canvas = document.getElementById("gl");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x07090c, 12, 26);
+const camera = new THREE.PerspectiveCamera(36, 1, 0.05, 80);
+camera.position.set(5.4, 1.25, 4.6);
+
+const controls = new THREE.OrbitControls(camera, canvas);
+controls.target.set(0, 0.5, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = 3.2;
+controls.maxDistance = 16;
+controls.maxPolarAngle = Math.PI * 0.62;
+controls.autoRotateSpeed = 1.2;
+controls.enablePan = false;
+
+if (THREE.RoomEnvironment) {
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new THREE.RoomEnvironment(), 0.04).texture;
+}
+// Cinematic rig: one hard key spot from high front-left, a cold blue rim from behind, little fill
+scene.add(new THREE.HemisphereLight(0xb8d4ff, 0x0a0806, 0.22));
+const key = new THREE.SpotLight(0xffffff, 2.6, 0, 0.62, 0.55, 1.2);
+key.position.set(4.5, 7.5, 4.2); key.target.position.set(0, 0.4, 0); scene.add(key, key.target);
+const rim = new THREE.DirectionalLight(0x6fa8ff, 1.5); rim.position.set(-6, 3.5, -3); scene.add(rim);
+const kick = new THREE.DirectionalLight(0x9cc4ff, 0.6); kick.position.set(-2, 1.2, 6); scene.add(kick);
+const fill = new THREE.DirectionalLight(0xffc9a0, 0.2); fill.position.set(0, 1, -6); scene.add(fill);
+// soft pool of light on the floor under the key
+{
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d"), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, "rgba(120,160,230,0.12)"); gr.addColorStop(1, "rgba(120,160,230,0)");
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(12, 8), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  pool.rotation.x = -Math.PI / 2; pool.position.set(0.3, 0.003, 0.2); scene.add(pool);
+}
+
+// Tunnel floor + rolling road
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(22, 64),
+  new THREE.MeshLambertMaterial({ color: 0x07090c })   // matte: no grazing-angle glare
+);
+floor.rotation.x = -Math.PI / 2; scene.add(floor);
+const grid = new THREE.GridHelper(40, 80, 0x1b232d, 0x121820);
+grid.position.y = 0.002; scene.add(grid);
+
+const roadCanvas = document.createElement("canvas"); roadCanvas.width = 64; roadCanvas.height = 256;
+{
+  const g = roadCanvas.getContext("2d");
+  g.fillStyle = "#0f141b"; g.fillRect(0, 0, 64, 256);
+  g.fillStyle = "#1c2530"; for (let i = 0; i < 8; i++) g.fillRect(0, i * 32, 64, 3);
+  g.fillStyle = "#2a3542"; g.fillRect(0, 0, 3, 256); g.fillRect(61, 0, 3, 256);
+}
+const roadTex = new THREE.CanvasTexture(roadCanvas);
+roadTex.encoding = THREE.sRGBEncoding;
+roadTex.wrapS = roadTex.wrapT = THREE.RepeatWrapping; roadTex.repeat.set(1, 6);
+const road = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 14), new THREE.MeshBasicMaterial({ map: roadTex, color: 0x262b33, transparent: true, opacity: 0.8 }));
+road.rotation.x = -Math.PI / 2; road.rotation.z = Math.PI / 2; road.position.y = 0.004; scene.add(road);
+
+/* ---------- Car ---------- */
+const car = new THREE.Group(); scene.add(car);
+// soft contact shadow that turns with the car
+{
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d"), gr = g.createRadialGradient(64, 64, 8, 64, 64, 64);
+  gr.addColorStop(0, "rgba(0,0,0,0.85)"); gr.addColorStop(0.6, "rgba(0,0,0,0.45)"); gr.addColorStop(1, "rgba(0,0,0,0)");
+  g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  const sh = new THREE.Mesh(new THREE.PlaneGeometry(5.6, 2.9), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+  sh.rotation.x = -Math.PI / 2; sh.position.y = 0.006; sh.renderOrder = 1;
+  scene.add(sh); car.userData.shadow = sh;
+}
+const colorable = []; // meshes whose vertex colours show pressure
+
+function matStd(color, opts = {}) {
+  return new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.4, metalness: 0.2 }, opts));
+}
+
+function loftGeometry(sec, x0, x1, nx, nr, capStart, capEnd) {
+  const pos = [], idx = [];
+  for (let i = 0; i <= nx; i++) {
+    const u = i / nx;
+    // cluster stations towards the ends
+    const x = x0 + (x1 - x0) * (0.5 - 0.5 * Math.cos(Math.PI * u));
+    const s = sec(x);
+    for (let j = 0; j < nr; j++) {
+      const a = (j / nr) * Math.PI * 2;
+      const c = Math.cos(a), sn = Math.sin(a);
+      const z = s.w * Math.sign(c) * Math.sqrt(Math.abs(c));
+      const y = s.yc + s.hh * Math.sign(sn) * Math.sqrt(Math.abs(sn));
+      pos.push(x, y, z);
+    }
+  }
+  for (let i = 0; i < nx; i++) for (let j = 0; j < nr; j++) {
+    const a = i * nr + j, b = i * nr + (j + 1) % nr, c = (i + 1) * nr + j, d = (i + 1) * nr + (j + 1) % nr;
+    idx.push(a, b, c, b, d, c);
+  }
+  const addCap = (ring, x, flip) => {
+    const s = sec(x); const ci = pos.length / 3; pos.push(x, s.yc, 0);
+    for (let j = 0; j < nr; j++) {
+      const a = ring * nr + j, b = ring * nr + (j + 1) % nr;
+      flip ? idx.push(ci, a, b) : idx.push(ci, b, a);
+    }
+  };
+  if (capStart) addCap(0, x0, false);
+  if (capEnd) addCap(nx, x1, true);
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+function addColorable(mesh, part, base) {
+  const n = mesh.geometry.attributes.position.count;
+  mesh.geometry.setAttribute("color", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+  mesh.material.vertexColors = true;
+  mesh.material.color.set(0xffffff);
+  mesh.userData.part = part;
+  mesh.userData.base = new THREE.Color(base).convertSRGBToLinear();
+  mesh.userData.cp = new Float32Array(n);
+  colorable.push(mesh);
+  return mesh;
+}
+
+const PAPAYA = 0xff7a00, CARBON = 0x1a1d22, GLASS = 0x0d1117;
+
+const body = new THREE.Mesh(loftGeometry(bodySec, XF, XR, 140, 72, true, true), matStd(0xffffff, { roughness: 0.32, metalness: 0.25 }));
+addColorable(body, "body", PAPAYA); car.add(body);
+
+const cabin = new THREE.Mesh(loftGeometry(cabSec, CAB_XF, CAB_XR, 80, 56, false, false), matStd(0xffffff, { roughness: 0.12, metalness: 0.6 }));
+addColorable(cabin, "cabin", GLASS); car.add(cabin);
+
+// Feature groups (for highlight)
+const feats = { splitter: [], canards: [], louvres: [], diffuser: [], wing: [] };
+
+// Front splitter
+{
+  const g = new THREE.BoxGeometry(0.5, 0.03, 1.86, 10, 1, 20);
+  const m = new THREE.Mesh(g, matStd(0xffffff, { roughness: 0.5 }));
+  m.position.set(2.2, 0.085, 0);
+  addColorable(m, "splitter", CARBON); car.add(m); feats.splitter.push(m);
+}
+// Dive planes
+for (const sz of [1, -1]) for (const [yy, xx, len] of [[0.30, 2.1, 0.30], [0.40, 2.02, 0.24]]) {
+  const g = new THREE.BoxGeometry(len, 0.016, 0.16, 6, 1, 3);
+  const m = new THREE.Mesh(g, matStd(0xffffff, { roughness: 0.5 }));
+  const s = bodySec(xx);
+  m.position.set(xx, yy, sz * (s.w * 0.97 + 0.05));
+  m.rotation.z = -0.22; m.rotation.y = sz * 0.25;
+  addColorable(m, "canard", CARBON); car.add(m); feats.canards.push(m);
+}
+// Fender louvres (dark slats on top of front arches)
+for (const sz of [1, -1]) {
+  const s = bodySec(1.45);
+  for (let i = 0; i < 5; i++) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.02, 0.34), matStd(0x0a0c0f, { roughness: 0.6 }));
+    const x = 1.62 - i * 0.085;
+    const ss = bodySec(x);
+    m.position.set(x, ss.yc + ss.hh * 0.99, sz * 0.66);
+    car.add(m); feats.louvres.push(m);
+  }
+}
+// Hood vents
+{
+  const s = bodySec(1.25);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.02, 0.62), matStd(0x0a0c0f, { roughness: 0.6 }));
+  m.position.set(1.2, s.yc + s.hh + 0.003, 0); m.rotation.z = 0.12; car.add(m);
+}
+// Diffuser ramp + strakes
+{
+  const shape = new THREE.PlaneGeometry(0.72, 1.7, 12, 12);
+  const m = new THREE.Mesh(shape, matStd(0xffffff, { roughness: 0.55, side: THREE.DoubleSide }));
+  m.rotation.x = Math.PI / 2; m.rotation.y = -0.3;
+  m.position.set(-2.0, 0.2, 0);
+  addColorable(m, "diffuser", CARBON); car.add(m); feats.diffuser.push(m);
+  for (const z of [-0.8, -0.42, 0, 0.42, 0.8]) {
+    const tri = new THREE.Shape(); tri.moveTo(0, 0); tri.lineTo(-0.72, 0); tri.lineTo(-0.72, 0.24); tri.lineTo(0, 0.02);
+    const st = new THREE.Mesh(new THREE.ExtrudeGeometry(tri, { depth: 0.012, bevelEnabled: false }), matStd(0x14171b, { roughness: 0.6 }));
+    st.position.set(-1.64, 0.09, z - 0.006); car.add(st); feats.diffuser.push(st);
+  }
+}
+// Side skirts
+for (const sz of [1, -1]) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.08, 0.05), matStd(CARBON, { roughness: 0.5 }));
+  m.position.set(0.05, 0.14, sz * 0.975); car.add(m);
+}
+// Mirrors
+for (const sz of [1, -1]) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.065, 0.13), matStd(PAPAYA, { roughness: 0.35 }));
+  m.position.set(0.74, 0.9, sz * 0.74); car.add(m);
+  const st = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.02), matStd(CARBON));
+  st.position.set(0.74, 0.83, sz * 0.68); car.add(st);
+}
+// Lights
+for (const sz of [1, -1]) {
+  const hl = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 8), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xdfe9ff, emissiveIntensity: 1.2 }));
+  hl.scale.set(1.1, 0.28, 0.9); hl.position.set(1.97, 0.47, sz * 0.6); hl.rotation.z = -0.35; car.add(hl);
+  const tl = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 0.5), new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1a1a, emissiveIntensity: 1.6 }));
+  tl.position.set(XR - 0.005, 0.66, sz * 0.52); car.add(tl);
+}
+// Wheels
+const wheelSpin = [];
+for (const wx of [1.45, -1.3]) for (const sz of [1, -1]) {
+  const s = bodySec(wx);
+  const zface = s.w * 0.995 + 0.004;
+  const arch = new THREE.Mesh(new THREE.CircleGeometry(0.42, 40), new THREE.MeshBasicMaterial({ color: 0x030405 }));
+  arch.position.set(wx, 0.35, sz * zface); arch.rotation.y = sz > 0 ? 0 : Math.PI; car.add(arch);
+  const tyre = new THREE.Mesh(new THREE.CylinderGeometry(0.345, 0.345, 0.3, 40, 1, true), matStd(0x141414, { roughness: 0.9, metalness: 0, side: THREE.DoubleSide }));
+  tyre.rotation.x = Math.PI / 2; tyre.position.set(wx, 0.345, sz * (zface - 0.12)); car.add(tyre);
+  const wheel = new THREE.Group(); wheel.position.set(wx, 0.345, sz * (zface + 0.003));
+  const rimDisc = new THREE.Mesh(new THREE.CircleGeometry(0.25, 36), matStd(0x2b3036, { metalness: 0.8, roughness: 0.3 }));
+  const tyreWall = new THREE.Mesh(new THREE.RingGeometry(0.25, 0.345, 40), matStd(0x111111, { roughness: 0.95, metalness: 0 }));
+  wheel.add(tyreWall, rimDisc);
+  for (let k = 0; k < 5; k++) {
+    const sp = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.01), matStd(0x8d959e, { metalness: 0.9, roughness: 0.25 }));
+    sp.rotation.z = k * Math.PI * 2 / 5; sp.position.set(0, 0, 0.004);
+    sp.geometry.translate(0, 0.11, 0);
+    wheel.add(sp);
+  }
+  const nut = new THREE.Mesh(new THREE.CircleGeometry(0.045, 6), matStd(PAPAYA, { metalness: 0.5 })); nut.position.z = 0.008; wheel.add(nut);
+  if (sz < 0) wheel.rotation.y = Math.PI;
+  car.add(wheel); wheelSpin.push({ g: wheel, dir: sz });
+}
+
+// Rear wing (inverted aerofoil), endplates, swan-neck mounts
+const wingPivot = new THREE.Group(); wingPivot.position.set(WING.x, WING.y, 0); car.add(wingPivot);
+{
+  const chord = 0.40, th = 0.05;
+  const sh = new THREE.Shape();
+  const N = 24, top = [], bot = [];
+  for (let i = 0; i <= N; i++) {
+    const u = i / N, xc = u * chord;
+    const yt = 5 * th * (0.2969 * Math.sqrt(u) - 0.126 * u - 0.3516 * u * u + 0.2843 * u ** 3 - 0.1015 * u ** 4) * 0.5;
+    const camber = -0.06 * chord * 4 * u * (1 - u); // curved side down
+    top.push([xc, camber + yt]); bot.push([xc, camber - yt]);
+  }
+  // leading edge at local +x (upstream), so mirror x
+  sh.moveTo(chord / 2 - top[0][0], top[0][1]);
+  for (const p of top) sh.lineTo(chord / 2 - p[0], p[1]);
+  for (let i = bot.length - 1; i >= 0; i--) sh.lineTo(chord / 2 - bot[i][0], bot[i][1]);
+  const g = new THREE.ExtrudeGeometry(sh, { depth: WING.span * 2, bevelEnabled: false, steps: 24, curveSegments: 4 });
+  g.translate(0, 0, -WING.span);
+  g.computeVertexNormals();
+  const wingMesh = new THREE.Mesh(g, matStd(0xffffff, { roughness: 0.75, metalness: 0.05 }));
+  addColorable(wingMesh, "wing", CARBON);
+  wingPivot.add(wingMesh); feats.wing.push(wingMesh);
+  // gurney flap at trailing edge
+  const gf = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.035, WING.span * 2), matStd(PAPAYA));
+  gf.position.set(-chord / 2 + 0.004, 0.017, 0); wingPivot.add(gf); feats.wing.push(gf);
+}
+for (const sz of [1, -1]) {
+  const ep = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.26, 0.012), matStd(CARBON, { roughness: 0.5 }));
+  ep.position.set(WING.x - 0.04, WING.y - 0.04, sz * (WING.span + 0.008)); car.add(ep); feats.wing.push(ep);
+  const s = bodySec(-1.95);
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-1.9, s.yc + s.hh - 0.02, sz * 0.36),
+    new THREE.Vector3(-2.05, 1.12, sz * 0.36),
+    new THREE.Vector3(-2.1, 1.42, sz * 0.36),
+    new THREE.Vector3(-2.17, 1.36, sz * 0.36),
+  ]);
+  const mnt = new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.016, 8, false), matStd(0x2a2f36, { metalness: 0.7, roughness: 0.3 }));
+  car.add(mnt); feats.wing.push(mnt);
+}
+
+// Material colours are authored in sRGB; convert once for the linear pipeline
+scene.traverse((o) => {
+  const m = o.material; if (!m || m.userData.lin) return;
+  if (m.color && !m.vertexColors) m.color.convertSRGBToLinear();
+  if (m.emissive) m.emissive.convertSRGBToLinear();
+  m.userData.lin = true;
+});
+scene.fog.color.convertSRGBToLinear();
+
+// Collect feature materials for pulsing highlight
+const featMats = {};
+for (const k in feats) featMats[k] = feats[k].map((m) => m.material);
+
+// Everything built so far is the simplified stand-in car; it stays as the fallback
+const proc = new THREE.Group();
+while (car.children.length) proc.add(car.children[0]);
+car.add(proc);
+
+/* ---------- Detailed models (the McLaren converted from USDZ, the others from FBX) ---------- */
+let model = null;
+const modelParts = [];     // wheel hubs, blur ghosts and the wing pivot lifted out of the model
+// Shared uniforms for the pressure overlay and the feature highlight on the model's own materials
+const HEATU = {
+  uHeatBlend: { value: 0 },
+  uCarInv: { value: new THREE.Matrix4() },
+  uHiMin: { value: new THREE.Vector3() },
+  uHiMax: { value: new THREE.Vector3() },
+  uHiAmt: { value: 0 },
+};
+function addHeatOverlay(mat) {
+  mat.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, HEATU);
+    sh.vertexShader = "attribute vec3 heat;\nvarying vec3 vHeat;\nvarying vec3 vCarPos;\nuniform mat4 uCarInv;\n" +
+      sh.vertexShader.replace("#include <begin_vertex>",
+        "#include <begin_vertex>\nvHeat = heat;\nvCarPos = (uCarInv * modelMatrix * vec4(transformed, 1.0)).xyz;");
+    sh.fragmentShader = "uniform float uHeatBlend;\nuniform vec3 uHiMin;\nuniform vec3 uHiMax;\nuniform float uHiAmt;\nvarying vec3 vHeat;\nvarying vec3 vCarPos;\n" +
+      sh.fragmentShader
+        .replace("#include <map_fragment>", "#include <map_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vHeat, uHeatBlend);\ndiffuseColor.a = mix(diffuseColor.a, 1.0, uHeatBlend * 0.6);")
+        .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.55, uHeatBlend);")
+        .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.0, uHeatBlend);")
+        .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\n{ vec3 q = vec3(vCarPos.x, vCarPos.y, abs(vCarPos.z)); vec3 inb = step(uHiMin, q) * step(q, uHiMax);\n  totalEmissiveRadiance += vec3(1.0, 0.42, 0.04) * inb.x * inb.y * inb.z * uHiAmt; }");
+  };
+  mat.customProgramCacheKey = () => "heat-overlay";
+}
+/* ---------- Spinning wheels on the real model ----------
+   The build tools give each wheel's rotating parts (tyre, rim, centre-lock, brake disc)
+   their own "__wheelFL/FR/RL/RR" materials and measure each hub centre and spin axis (CAR.wheels;
+   for the McLaren from the brake disc, true to under a millimetre and including the car's
+   camber). Off-centre parts such as the brake calipers stay fixed, as on the real car. */
+let wheelHubs = [];
+const WHEEL_GHOSTS = isSmall ? 3 : 5;
+const ROAD_VIS_SPEED = 12;       // on-screen belt (and tyre tread) speed at 300 km/h, m/s
+function setupSpinningWheels(root) {
+  car.updateMatrixWorld(true);
+  const carInv = new THREE.Matrix4().copy(car.matrixWorld).invert();
+  for (const key in CAR.wheels) {
+    const W = CAR.wheels[key], parts = [];
+    root.traverse((o) => { if (o.isMesh && o.material.name.endsWith("__wheel" + key)) parts.push(o); });
+    if (!parts.length) continue;
+    const hub = new THREE.Group();
+    hub.position.set(...W.c);
+    car.add(hub); modelParts.push(hub);
+    const toHub = new THREE.Matrix4().makeTranslation(-W.c[0], -W.c[1], -W.c[2]);
+    for (const o of parts) {
+      const rel = carInv.clone().multiply(o.matrixWorld);
+      o.parent.remove(o);
+      o.matrixAutoUpdate = false;
+      o.matrix.copy(toHub).multiply(rel);
+      hub.add(o);
+    }
+    // Motion blur: faded copies of the same wheel parts, trailing at slightly earlier angles.
+    // At racing speed a wheel turns ~30 times a second, faster than the screen redraws, so
+    // without this it would strobe or appear to run backwards (the wagon-wheel effect).
+    const ghosts = [];
+    for (let i = 1; i <= WHEEL_GHOSTS; i++) {
+      const g = new THREE.Group();
+      g.position.copy(hub.position);
+      for (const o of parts) {
+        const m = o.material.clone();
+        m.transparent = true; m.depthWrite = false; m.opacity = 0;
+        addHeatOverlay(m);
+        const c = new THREE.Mesh(o.geometry, m);
+        c.matrixAutoUpdate = false; c.matrix.copy(o.matrix); c.renderOrder = 2;
+        g.add(c);
+      }
+      g.visible = false;
+      car.add(g); modelParts.push(g);
+      ghosts.push(g);
+    }
+    wheelHubs.push({ hub, ghosts, axis: new THREE.Vector3(...W.axis).normalize(), r: W.r, angle: 0 });
+  }
+}
+
+/* ---------- Adjustable rear wing on the real model ----------
+   The moving parts carry "__wing" materials and turn about CAR.hinge. On the McLaren that is
+   the real assembly: the wing (main plane + endplates) hangs from the swan-neck mounts on a
+   bracket plate each side, which pivots on one bolt and locks with a second bolt in a slot;
+   tools/split_wing.py measures the hinge through both pivot bolts, and the swan necks, their
+   cheeks and the pivot bolts stay put. On the F1 car it is the upper flap (as DRS moves it),
+   on the Valkyrie the blade between the rear fenders, each about its leading edge. */
+const WING_VIS_GAIN = 2;     // drawn at 2x so a few degrees is easy to see
+const modelWingPivot = new THREE.Group();
+const wingAxis = new THREE.Vector3();
+let modelWingReady = false;
+function setupMovableWing(root) {
+  const parts = [];
+  root.traverse((o) => { if (o.isMesh && /__wing/.test(o.material.name)) parts.push(o); });
+  if (!parts.length || !CAR.hinge) return;
+  car.updateMatrixWorld(true);
+  const carInv = new THREE.Matrix4().copy(car.matrixWorld).invert();
+  const H = CAR.hinge;
+  wingAxis.set(...H.axis).normalize();
+  modelWingPivot.position.set(...H.origin);
+  modelWingPivot.quaternion.identity();
+  car.add(modelWingPivot);
+  const toPivot = new THREE.Matrix4().makeTranslation(...H.origin.map((v) => -v));
+  for (const o of parts) {
+    const rel = carInv.clone().multiply(o.matrixWorld);
+    o.parent.remove(o);
+    o.matrixAutoUpdate = false;
+    o.matrix.copy(toPivot).multiply(rel);
+    modelWingPivot.add(o);
+  }
+  modelWingReady = true;
+}
+
+// Take the current model off the stage and free its GPU memory
+function disposeModel() {
+  if (!model) return;
+  const geos = new Set(), mats = new Set(), texs = new Set();
+  const collect = (root) => root.traverse((o) => {
+    if (!o.isMesh) return;
+    geos.add(o.geometry);
+    for (const m of [].concat(o.material)) {
+      mats.add(m);
+      for (const k in m) if (m[k] && m[k].isTexture) texs.add(m[k]);
+    }
+  });
+  collect(model); for (const p of modelParts) collect(p); collect(modelWingPivot);
+  car.remove(model);
+  for (const p of modelParts) car.remove(p);
+  modelParts.length = 0;
+  modelWingPivot.clear(); car.remove(modelWingPivot); modelWingReady = false;
+  geos.forEach((g) => g.dispose()); mats.forEach((m) => m.dispose()); texs.forEach((t) => t.dispose());
+  wheelHubs = [];
+  colorable.length = 0;
+  model = null;
+}
+
+// Load a script once (the other cars' distance fields, and on hosts that can't serve .glb files,
+// the models themselves as base64 scripts listed in window.CAR_ASSETS)
+const scriptLoads = {};
+function loadScript(src) {
+  if (!scriptLoads[src]) scriptLoads[src] = new Promise((res, rej) => {
+    const el = document.createElement("script");
+    el.src = src; el.onload = res; el.onerror = () => { delete scriptLoads[src]; rej(new Error(src)); };
+    document.head.appendChild(el);
+  });
+  return scriptLoads[src];
+}
+const assetSrc = (id, kind) => (window.CAR_ASSETS && window.CAR_ASSETS[id] && window.CAR_ASSETS[id][kind]) || null;
+
+const loadingEl = document.getElementById("loading");
+let loadToken = 0;
+function loadModel() {
+  const id = CAR_ID, token = ++loadToken;
+  const stale = () => token !== loadToken;
+  loadingEl.textContent = "Loading car model…"; loadingEl.style.opacity = 1;
+  if (!THREE.GLTFLoader) { loadingEl.textContent = "Showing the simplified car"; setTimeout(() => (loadingEl.style.opacity = 0), 3000); return; }
+  const onModel = (gltf) => {
+    if (stale()) return;
+    disposeModel();
+    model = gltf.scene;
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      const m = o.material;
+      if (m.name === "Window") { m.color.setRGB(0.012, 0.016, 0.02); m.metalness = 0.6; m.roughness = 0.04; m.opacity = 0.82; }
+      m.envMapIntensity = 0.55;
+      addHeatOverlay(m);
+      const n = o.geometry.attributes.position.count;
+      o.geometry.setAttribute("heat", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
+      o.userData.part = "model";
+      o.userData.shaderHeat = true;
+      o.userData.cp = new Float32Array(n);
+    });
+    // swap the stand-in for the real car and fit the flow field to its outline
+    colorable.length = 0;
+    model.traverse((o) => { if (o.isMesh) colorable.push(o); });
+    car.add(model);
+    proc.visible = false;
+    setupSpinningWheels(model);
+    setupMovableWing(model);
+    useMeasuredOutline();
+    dirty.surface = dirty.stream = dirty.vec = true; lastCpKey = ""; needPaint = true;
+    loadingEl.style.opacity = 0;
+  };
+  const onFail = () => {
+    if (stale()) return;
+    loadingEl.textContent = model || id !== "mclaren" ? "Couldn't load this car model." : "Couldn't load the detailed model. Showing the simplified car.";
+    setTimeout(() => (loadingEl.style.opacity = 0), 4000);
+  };
+  const loader = new THREE.GLTFLoader();
+  // GLTFLoader decodes embedded textures with fetch(blob:) when createImageBitmap exists, and
+  // strict hosts (like the artifact viewer) block that. Hide it while the parser is created so
+  // textures load through plain <img> elements instead.
+  const parse0 = loader.parse.bind(loader);
+  loader.parse = (...args) => {
+    const cib = window.createImageBitmap;
+    window.createImageBitmap = undefined;
+    try { return parse0(...args); } finally { window.createImageBitmap = cib; }
+  };
+  const parseB64 = (b64) => {
+    try {
+      const bin = atob(b64), buf = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+      loader.parse(buf.buffer, "", onModel, onFail);
+    } catch (err) { onFail(); }
+  };
+  // Hosts that can't serve .glb files can ship each model as a script that fills
+  // window.CAR_GLBS[id] (or, for the McLaren alone, sets CAR_GLB_B64)
+  const b64 = () => (window.CAR_GLBS && window.CAR_GLBS[id]) || (id === "mclaren" && window.CAR_GLB_B64);
+  if (b64()) return parseB64(b64());
+  const src = assetSrc(id, "glb");
+  if (src) {
+    loadScript(src).then(() => { if (!stale()) b64() ? parseB64(b64()) : onFail(); }, onFail);
+    return;
+  }
+  loader.load(CAR.glb, onModel, (e) => {
+    if (e.total && !stale()) loadingEl.textContent = "Loading car model " + Math.round(e.loaded / e.total * 100) + "%";
+  }, onFail);
+}
+
+/* ---------- Surface pressure ---------- */
+const _m = new THREE.Matrix4(), _nm = new THREE.Matrix3(), _v = new THREE.Vector3(), _n = new THREE.Vector3();
+function gauss(x, mu, s) { const d = (x - mu) / s; return Math.exp(-d * d); }
+
+function surfaceCp(part, px, py, pz, nx, ny, nz) {
+  const L = flow.load;
+  const c = -(flow.ux * nx + flow.uz * nz);  // facing into the wind
+  const s2 = 1 - c * c;
+  let cp = c >= 0 ? 1 - 2.25 * s2 : -0.3 - 0.95 * s2;
+  cp = Math.max(-1.6, cp);
+  if (part === "model") {
+    // classify the detailed mesh by position
+    const D = CAR.diffuser;
+    if (px < WING.x + 0.32 && py > WING.y - WING.below) part = "wing";
+    else if (px > XF - CAR.nose.len && py < CAR.nose.y) part = "splitter";
+    else if (px < D.x0 + 0.1 && py < 0.42 && ny < -0.3) part = "diffuser";
+    else {
+      part = "body";
+      const s = bodySec(px), top = s.yc + s.hh;
+      // flat side panels see far milder suction than the curved roof and bonnet
+      const side = nz * nz;
+      if (cp < 0) cp = cp * (1 - 0.7 * side) - 0.25 * side;
+      if (ny > 0.3 && cp < 0) cp *= 0.55 + 0.45 * Math.min(1, Math.max(0, (py - 0.75) / 0.35));
+      // base of the windscreen and bonnet leading edges collect pressure
+      if (py > top - 0.05 && c > 0.3 && ny > 0.15 && px > CAR.screen[0] && px < CAR.screen[1]) cp = Math.max(cp, 0.3 + 0.45 * c);
+    }
+  }
+  switch (part) {
+    case "body":
+    case "cabin":
+      if (ny < -0.55) cp = -0.75 - 0.8 * gauss(px, CAR.diffuser.x0 + 0.1, 0.7) * (0.8 + 0.2 * L) - 0.35 * gauss(px, XF - 0.4, 0.35);
+      if (part === "cabin") {
+        const s = bodySec(px); const baseY = s.yc + s.hh;
+        if (py < baseY + 0.12 && c > 0.25) cp = Math.max(cp, 0.35 + 0.4 * c);
+      }
+      // rear deck under the wing sees the wing's suction
+      if (part === "body" && ny > 0.5 && px < WING.x + 0.55 && py > WING.y - 0.5) cp -= 0.35 * L;
+      // wheel wells and the floor edge sit in fast, low-pressure air
+      if (py < 0.1 && ny < -0.2) cp = Math.min(cp, -0.9);
+      break;
+    case "wing":
+      if (ny > 0.25) cp = 0.3 + 0.35 * L;
+      else if (ny < -0.25) cp = -(0.8 + 1.0 * L) * (1 + 0.5 * Math.max(0, (px - WING.x) / 0.2));
+      break;
+    case "splitter":
+      if (ny > 0.5) cp = 0.55 + 0.35 * Math.max(0, (px - XF + CAR.nose.len - 0.1) / 0.45);
+      else if (ny < -0.5) cp = -1.25;
+      break;
+    case "canard":
+      cp = ny > 0.3 ? 0.55 : ny < -0.3 ? -1.1 : cp;
+      break;
+    case "diffuser":
+      cp = -1.25 + 0.9 * Math.min(1, Math.max(0, (CAR.diffuser.x0 + 0.01 - px) / 0.7));
+      break;
+  }
+  return cp;
+}
+
+// Quantized (KHR_mesh_quantization) attributes arrive as normalized integers
+function attrScale(a) {
+  if (!a.normalized) return 1;
+  const arr = a.isInterleavedBufferAttribute ? a.data.array : a.array;
+  if (arr instanceof Int16Array) return 1 / 32767;
+  if (arr instanceof Uint16Array) return 1 / 65535;
+  if (arr instanceof Int8Array) return 1 / 127;
+  if (arr instanceof Uint8Array) return 1 / 255;
+  return 1;
+}
+// Pressure colours read best under flatter light, so dim the studio reflections as they fade in
+function setHeatBlend(b) {
+  HEATU.uHeatBlend.value = b;
+  // the car group also holds the wheel hubs and wing hinge that were lifted out of the model
+  if (model) car.traverse((o) => { if (o.isMesh && o.material.onBeforeCompile && o.parent !== proc && !proc.children.includes(o)) o.material.envMapIntensity = 0.55 - 0.4 * b; });
+}
+function updateSurfaceCp() {
+  car.updateMatrixWorld(true);
+  const inv = new THREE.Matrix4().copy(car.matrixWorld).invert();
+  for (const mesh of colorable) {
+    _m.multiplyMatrices(inv, mesh.matrixWorld);
+    _nm.getNormalMatrix(_m);
+    const P = mesh.geometry.attributes.position, N = mesh.geometry.attributes.normal, cp = mesh.userData.cp;
+    const ps = attrScale(P), ns = attrScale(N);
+    for (let i = 0; i < P.count; i++) {
+      _v.set(P.getX(i) * ps, P.getY(i) * ps, P.getZ(i) * ps).applyMatrix4(_m);
+      _n.set(N.getX(i) * ns, N.getY(i) * ns, N.getZ(i) * ns).applyMatrix3(_nm).normalize();
+      let c = surfaceCp(mesh.userData.part, _v.x, _v.y, _v.z, _n.x, _n.y, _n.z);
+      // A surface only builds stagnation pressure if the oncoming air can actually reach it.
+      // Forward-facing faces at the back (rear tyres in their arches, inner arch and tail
+      // panels, diffuser fins) sit in the car's own shadow: they see the mild suction of the
+      // slipstream, not ram pressure.
+      const facing = -(flow.ux * _n.x + flow.uz * _n.z);
+      if (c > 0 && facing > 0.05 && USE_GRID && shadowed(_v.x, _v.y, _v.z, _n.x, _n.y, _n.z)) c = -0.2 - 0.1 * facing;
+      cp[i] = c;
+    }
+  }
+}
+// March upstream (into the oncoming air) from just off the surface; true if the car is in the way.
+function shadowed(px, py, pz, nx, ny, nz) {
+  const dx = -flow.ux, dz = -flow.uz;
+  let x = px + nx * 0.05, y = py + ny * 0.05, z = pz + nz * 0.05, travelled = 0;
+  for (let k = 0; k < 48 && travelled < 4.5; k++) {
+    const d = carSD(x, y, z);
+    if (travelled > 0.08 && d < 0) return true;
+    const step = Math.max(0.03, d);
+    x += dx * step; z += dz * step; travelled += step;
+  }
+  return false;
+}
+const _hc = [0, 0, 0];
+function paintSurfaces() {
+  const b = S.pBlend;
+  setHeatBlend(b);
+  for (const mesh of colorable) {
+    if (mesh.userData.shaderHeat) {
+      const H = mesh.geometry.attributes.heat, cp = mesh.userData.cp, arr = H.array;
+      for (let i = 0; i < cp.length; i++) {
+        heat(cpToHeat(cp[i]), _hc);
+        arr[i * 3] = _hc[0] * _hc[0] * 0.8; arr[i * 3 + 1] = _hc[1] * _hc[1] * 0.8; arr[i * 3 + 2] = _hc[2] * _hc[2] * 0.8;
+      }
+      H.needsUpdate = true;
+      continue;
+    }
+    const C = mesh.geometry.attributes.color, cp = mesh.userData.cp, base = mesh.userData.base;
+    const arr = C.array;
+    for (let i = 0; i < cp.length; i++) {
+      heat(cpToHeat(cp[i]), _hc);
+      // heat colours are sRGB-ish; convert approx to linear
+      const r = _hc[0] * _hc[0], g = _hc[1] * _hc[1], bl = _hc[2] * _hc[2];
+      arr[i * 3] = base.r + (r - base.r) * b;
+      arr[i * 3 + 1] = base.g + (g - base.g) * b;
+      arr[i * 3 + 2] = base.b + (bl - base.b) * b;
+    }
+    C.needsUpdate = true;
+  }
+}
+
+/* ---------- Coordinate helpers (world <-> car-local) ---------- */
+let cosY = 1, sinY = 0;
+function setYaw(rad) {
+  car.rotation.y = rad; cosY = Math.cos(rad); sinY = Math.sin(rad);
+  // world flow is along -X; express in car frame
+  flow.ux = -cosY; flow.uz = -sinY;
+}
+function toLocal(x, z, out) { out[0] = x * cosY - z * sinY; out[1] = x * sinY + z * cosY; return out; }
+function toWorld(x, z, out) { out[0] = x * cosY + z * sinY; out[1] = -x * sinY + z * cosY; return out; }
+
+/* ---------- Particles (streaks) ---------- */
+const PCOUNT = isSmall ? 1100 : 2000;
+const pPos = new Float32Array(PCOUNT * 3);
+const pAge = new Float32Array(PCOUNT);
+const sPos = new Float32Array(PCOUNT * 6);
+const sCol = new Float32Array(PCOUNT * 6);
+const streakGeo = new THREE.BufferGeometry();
+streakGeo.setAttribute("position", new THREE.BufferAttribute(sPos, 3));
+streakGeo.setAttribute("color", new THREE.BufferAttribute(sCol, 3));
+const streakMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false });
+const streaks = new THREE.LineSegments(streakGeo, streakMat);
+streaks.frustumCulled = false; scene.add(streaks);
+
+function seed(i, xStart) {
+  pPos[i * 3] = xStart;
+  pPos[i * 3 + 1] = 0.04 + 1.75 * Math.pow(Math.random(), 1.25);
+  pPos[i * 3 + 2] = (Math.random() * 2 - 1) * 1.7;
+  pAge[i] = 0;
+}
+for (let i = 0; i < PCOUNT; i++) seed(i, -8 + Math.random() * 14.5);
+
+const _f = [0, 0, 0, 0], _l = [0, 0], _w = [0, 0];
+function stepParticles(dt) {
+  const vis = (S.cSpeed / 300) * 7.5; // visual metres per second
+  const len = 0.05 + 0.3 * (S.cSpeed / 300);
+  for (let i = 0; i < PCOUNT; i++) {
+    const o = i * 3;
+    let x = pPos[o], y = pPos[o + 1], z = pPos[o + 2];
+    toLocal(x, z, _l);
+    field(_l[0], y, _l[1], S.time, _f);
+    toWorld(_f[0], _f[2], _w);
+    const vx = _w[0], vy = _f[1], vz = _w[1];
+    const step = vis * dt;
+    x += vx * step; y += vy * step; z += vz * step;
+    if (y < 0.02) y = 0.02;
+    pAge[i] += dt;
+    if (x < -8.5 || x > 7 || y > 3.2 || Math.abs(z) > 3.5) { seed(i, 6.2 + Math.random() * 0.6); x = pPos[o]; y = pPos[o + 1]; z = pPos[o + 2]; }
+    pPos[o] = x; pPos[o + 1] = y; pPos[o + 2] = z;
+    const sp = Math.hypot(vx, vy, vz) || 1;
+    const k = i * 6;
+    sPos[k] = x; sPos[k + 1] = y; sPos[k + 2] = z;
+    sPos[k + 3] = x - vx / sp * len * sp; sPos[k + 4] = y - vy / sp * len * sp; sPos[k + 5] = z - vz / sp * len * sp;
+    const hv = cpToHeat(_f[3]);
+    heat(hv, _hc);
+    const fadeIn = Math.min(1, pAge[i] * 1.5);
+    const fadeX = Math.min(1, (x + 8.5) / 2.5, (7 - x) / 1.2);
+    const a = Math.max(0, fadeIn * fadeX) * (0.25 + 0.75 * Math.min(1, S.cSpeed / 60)) * (0.3 + 0.7 * Math.min(1, Math.abs(hv) * 2.2));
+    sCol[k] = _hc[0] * a; sCol[k + 1] = _hc[1] * a; sCol[k + 2] = _hc[2] * a;
+    sCol[k + 3] = 0; sCol[k + 4] = 0; sCol[k + 5] = 0;
+  }
+  streakGeo.attributes.position.needsUpdate = true;
+  streakGeo.attributes.color.needsUpdate = true;
+}
+
+/* ---------- Smoke lines ----------
+   Two styles share one tracer:
+   - "clean": a handful of thick white smoke tubes, like a single smoke wand in a tunnel.
+     They hug the body, then break up into the wake.
+   - "dense": a full rake of thin glowing lines for a more data-like view. */
+const GLSL_HEAT = `
+  vec3 heatc(float v){
+    v = clamp(v, -1.0, 1.0);
+    vec3 c0 = vec3(0.106,0.231,1.0), c1 = vec3(0.122,0.482,1.0), c2 = vec3(0.235,0.784,1.0), c3 = vec3(0.725,0.776,0.824);
+    vec3 c4 = vec3(1.0,0.824,0.247), c5 = vec3(1.0,0.478,0.102), c6 = vec3(1.0,0.165,0.165);
+    if (v < -0.62) return mix(c0, c1, (v + 1.0) / 0.38);
+    if (v < -0.3) return mix(c1, c2, (v + 0.62) / 0.32);
+    if (v < 0.0) return mix(c2, c3, (v + 0.3) / 0.3);
+    if (v < 0.3) return mix(c3, c4, v / 0.3);
+    if (v < 0.65) return mix(c4, c5, (v - 0.3) / 0.35);
+    return mix(c5, c6, (v - 0.65) / 0.35);
+  }`;
+const RIB_U = { uTime: { value: 0 }, uSpeed: { value: 1 }, uTint: { value: 0 }, uSpeedScale: { value: 1 }, uAmp: { value: 1 }, uWobble: { value: 0 } };
+// Shared vertex stage: camera-facing strip; `brk` (0..1) widens the strip as it breaks into the wake
+const RIB_VERT = `
+  uniform float uWidth; uniform float uSpread; uniform float uTime; uniform float uWobble;
+  attribute vec3 tang; attribute float side; attribute float arc; attribute float cp; attribute float fade; attribute float brk; attribute float wsc;
+  varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
+  void main(){
+    // turbulence: the wake end of each tube writhes over time
+    vec3 p = position;
+    float w = uWobble * brk;
+    p.y += w * 0.07 * sin(arc * 4.7 - uTime * 7.0) * (0.6 + 0.4 * sin(arc * 1.3 + uTime));
+    p.z += w * 0.07 * cos(arc * 3.9 - uTime * 6.1);
+    vec4 mv = modelViewMatrix * vec4(p, 1.0);
+    vec3 t = normalize((modelViewMatrix * vec4(tang, 0.0)).xyz + 1e-5);
+    vec3 n = normalize(cross(t, normalize(mv.xyz)) + 1e-5);
+    mv.xyz += n * side * uWidth * wsc * (1.0 + uSpread * brk);
+    mv.xyz *= 0.997;   // sit a hair in front of the body so tubes skimming it stay visible
+    vSide = side; vArc = arc; vCp = cp; vFade = fade; vBrk = brk;
+    gl_Position = projectionMatrix * mv;
+  }`;
+function ribbonMaterial(width, alpha, pulse) {
+  return new THREE.ShaderMaterial({
+    uniforms: Object.assign({ uWidth: { value: width }, uSpread: { value: 0 }, uAlpha: { value: alpha }, uPulse: { value: pulse } }, RIB_U),
+    vertexShader: RIB_VERT,
+    fragmentShader: `
+      uniform float uAlpha; uniform float uPulse; uniform float uTime; uniform float uSpeed;
+      uniform float uTint; uniform float uSpeedScale; uniform float uAmp;
+      varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
+      ${GLSL_HEAT}
+      void main(){
+        float edge = 1.0 - vSide * vSide; edge *= edge;
+        float ph = fract(vArc * 0.32 - uTime * uSpeed);
+        float glow = 0.75 + uPulse * smoothstep(0.55, 1.0, ph);
+        float p = vCp * uSpeedScale; p = p < 0.0 ? p / 1.1 : p / 0.8;
+        vec3 col = mix(vec3(0.9, 0.94, 1.0), heatc(p), uTint);
+        gl_FragColor = vec4(col * edge * vFade * uAlpha * glow * uAmp, 1.0);
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+}
+// Solid, softly shaded smoke tube. Normal blending so it reads as white smoke, not light.
+const tubeMat = new THREE.ShaderMaterial({
+  uniforms: Object.assign({ uWidth: { value: 0.042 }, uSpread: { value: 2.6 } }, RIB_U),
+  vertexShader: RIB_VERT,
+  fragmentShader: `
+    uniform float uTime; uniform float uSpeed; uniform float uTint; uniform float uSpeedScale; uniform float uAmp;
+    varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
+    ${GLSL_HEAT}
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);
+      return mix(mix(hash(i), hash(i+vec2(1,0)), f.x), mix(hash(i+vec2(0,1)), hash(i+vec2(1,1)), f.x), f.y); }
+    void main(){
+      float r = abs(vSide);
+      // round tube profile: bright core, soft rim
+      float body = 1.0 - smoothstep(0.55, 1.0, r);
+      float shade = 0.78 + 0.22 * sqrt(max(0.0, 1.0 - r * r));
+      // as the tube breaks up it turns wispy: noise eats into it, moving with the flow
+      float n = vnoise(vec2(vArc * 3.0 - uTime * uSpeed * 6.0, vSide * 1.6 + vArc * 0.7));
+      float wisp = mix(1.0, smoothstep(0.25 + 0.5 * vBrk, 1.0, n + 0.35), vBrk);
+      float a = body * wisp * vFade * (1.0 - vBrk * vBrk * 0.85) * uAmp;
+      // a faint travelling shimmer gives the direction of flow without strobing
+      float ph = fract(vArc * 0.18 - uTime * uSpeed * 0.6);
+      shade += 0.08 * smoothstep(0.7, 1.0, ph);
+      float p = vCp * uSpeedScale; p = p < 0.0 ? p / 1.1 : p / 0.8;
+      vec3 col = mix(vec3(0.93, 0.94, 0.95), heatc(p), uTint) * shade;
+      if (a < 0.01) discard;
+      gl_FragColor = vec4(col, a * 0.95);
+    }`,
+  transparent: true, depthWrite: false, side: THREE.DoubleSide,
+});
+// Luminous CFD-style tube: white core grading to blue at the rim, additive so it glows.
+// `halo` draws the wide, faint bloom around it.
+function cfdMaterial(width, halo) {
+  return new THREE.ShaderMaterial({
+    uniforms: Object.assign({ uWidth: { value: width }, uSpread: { value: halo ? 1.6 : 0.9 } }, RIB_U),
+    vertexShader: RIB_VERT,
+    fragmentShader: `
+      uniform float uTime; uniform float uSpeed; uniform float uTint; uniform float uSpeedScale; uniform float uAmp;
+      varying float vSide; varying float vArc; varying float vCp; varying float vFade; varying float vBrk;
+      ${GLSL_HEAT}
+      void main(){
+        float r = abs(vSide);
+        float ph = fract(vArc * 0.28 - uTime * uSpeed);
+        float pulse = 0.85 + 0.55 * smoothstep(0.62, 1.0, ph);
+        float p = vCp * uSpeedScale; p = p < 0.0 ? p / 1.1 : p / 0.8;
+        float fade = vFade * (1.0 - 0.75 * vBrk) * uAmp;
+        ${halo ? `
+        float a = exp(-r * r * 3.0) * 0.1;
+        vec3 col = mix(vec3(0.2, 0.5, 1.0), heatc(p), uTint);
+        gl_FragColor = vec4(col * a * fade * pulse, 1.0);` : `
+        float core = exp(-r * r * 7.0);
+        vec3 col = mix(vec3(0.22, 0.52, 1.0), vec3(0.92, 0.97, 1.0), core);
+        col = mix(col, heatc(p) * (0.5 + 0.5 * core), uTint);
+        float a = (0.14 + 0.6 * core) * smoothstep(1.0, 0.7, r);
+        gl_FragColor = vec4(col * a * fade * pulse, 1.0);`}
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+  });
+}
+const ribGeo = new THREE.BufferGeometry();
+const ribGlow = new THREE.Mesh(ribGeo, ribbonMaterial(0.05, 0.05, 0.6));
+const ribCore = new THREE.Mesh(ribGeo, ribbonMaterial(0.011, 0.55, 1.1));
+const ribTube = new THREE.Mesh(ribGeo, tubeMat);
+const cfdHalo = new THREE.Mesh(ribGeo, cfdMaterial(0.1, true));
+const cfdCore = new THREE.Mesh(ribGeo, cfdMaterial(0.032, false));
+for (const m of [ribGlow, ribCore, ribTube, cfdHalo, cfdCore]) m.frustumCulled = false;
+ribTube.renderOrder = 3;
+const streamlines = new THREE.Group(); streamlines.add(ribGlow, ribCore, ribTube, cfdHalo, cfdCore); scene.add(streamlines);
+function applySmokeStyle() {
+  ribTube.visible = S.style === "clean";
+  ribGlow.visible = ribCore.visible = S.style === "dense";
+  cfdHalo.visible = cfdCore.visible = S.style === "glow";
+  RIB_U.uWobble.value = S.style === "glow" ? 1 : S.style === "clean" ? 0.4 : 0;
+}
+
+// Trace one path through the field (midpoint integration, world space)
+function tracePath(x, y, z, h, maxN) {
+  const pts = [];
+  let s = 0;
+  for (let n = 0; n < maxN; n++) {
+    toLocal(x, z, _l); field(_l[0], y, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
+    pts.push(x, y, z, _f[3], s);
+    let sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
+    const mx = x + _w[0] / sp * h * 0.5, my = Math.max(0.02, y + _f[1] / sp * h * 0.5), mz = z + _w[1] / sp * h * 0.5;
+    toLocal(mx, mz, _l); field(_l[0], my, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
+    sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
+    x += _w[0] / sp * h; y = Math.max(0.02, y + _f[1] / sp * h); z += _w[1] / sp * h;
+    s += h;
+    if (x < -7.5 || y > 3) break;
+  }
+  return pts;
+}
+
+// Smooth a traced path (Gaussian-ish passes), then nudge any point that sank into the body back out.
+// Keeps clean tubes as calm arcs instead of picking up every ripple in the analytic field.
+function smoothPath(pts, passes, clear) {
+  const n = pts.length / 5;
+  const tmp = new Float32Array(n * 3);
+  for (let p = 0; p < passes; p++) {
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < 3; c++) {
+        let sum = 0, wsum = 0;
+        for (let k = -4; k <= 4; k++) {
+          const j = Math.min(n - 1, Math.max(0, i + k)), w = 5 - Math.abs(k);
+          sum += pts[j * 5 + c] * w; wsum += w;
+        }
+        tmp[i * 3 + c] = sum / wsum;
+      }
+    }
+    for (let i = 1; i < n; i++) for (let c = 0; c < 3; c++) pts[i * 5 + c] = tmp[i * 3 + c];
+  }
+  const h = 0.02;
+  for (let i = 0; i < n; i++) {
+    const o = i * 5;
+    toLocal(pts[o], pts[o + 2], _l);
+    const lx = _l[0], ly = pts[o + 1], lz = _l[1];
+    const d = carSD(lx, ly, lz);
+    if (d < clear) {
+      let nx = carSD(lx + h, ly, lz) - carSD(lx - h, ly, lz);
+      let ny = carSD(lx, ly + h, lz) - carSD(lx, ly - h, lz);
+      let nz = carSD(lx, ly, lz + h) - carSD(lx, ly, lz - h);
+      const nl = Math.hypot(nx, ny, nz) || 1, m = (clear - d) / nl;
+      toWorld(nx * m, nz * m, _w);
+      pts[o] += _w[0]; pts[o + 1] = Math.max(0.02, ly + ny * m); pts[o + 2] += _w[1];
+    }
+    if (pts[o + 1] < 0.02) pts[o + 1] = 0.02;
+  }
+  return pts;
+}
+
+// Where each clean tube starts breaking up; the wake smoke is shed from these points
+const breakPoints = [];
+// Tubes are seeded by target: each one names a point just off the real bodywork (or a feature
+// such as the wing tip), and its seed is found by tracing the flow backwards from there. That
+// guarantees the tube actually skims the car where it should, instead of floating above it.
+//   ["top", x, z, clearance]    above the surface at (x, z)
+//   ["side", x, y, side, clear] beside the body at height y (side = +1 left, -1 right)
+//   ["under", x, z]             halfway between the floor and the road
+//   ["free", dx, dy, dz, ref]   a point relative to the rear wing ("wing") or its tip ("tip")
+//   ["abs", x, y, z]            a fixed point, e.g. beside a wing mirror
+// Each car lists its own targets (CARS[...].clean and .glow).
+// Resolve a target to a car-frame point using the distance field
+function targetPoint(t) {
+  const [kind] = t;
+  if (kind === "top") {
+    const [, x, z, c] = t;
+    for (let y = 1.6; y > 0; y -= 0.005) if (carSD(x, y, z) <= c) return [x, y, z];
+    return [x, 0.5, z];
+  }
+  if (kind === "side") {
+    const [, x, y, sd, c] = t;
+    for (let a = 1.6; a > 0; a -= 0.005) if (carSD(x, y, sd * a) <= c) return [x, y, sd * a];
+    return [x, y, sd * 1.1];
+  }
+  if (kind === "under") {
+    const [, x, z] = t;
+    let y = 0.01; while (y < 0.4 && carSD(x, y, z) > 0) y += 0.005;
+    return [x, Math.max(0.025, y * 0.5), z];
+  }
+  if (kind === "abs") return [t[1], t[2], t[3]];
+  const [, dx, dy, dz, ref] = t;
+  if (ref === "tip") return [WING.x + dx, WING.y + dy, Math.sign(dz) * WING.span + dz];
+  return [WING.x + dx, WING.y + dy, dz];
+}
+// Find where a tube must start at the inlet (world x = 9) to pass through a target point.
+// Tracing backwards from the target doesn't work: near the nose the flow spreads out, so traced
+// backwards every path collapses onto the stagnation line and the tubes bunch up. Instead, trace
+// forwards, see where the tube crosses the target's station, and nudge the start point by the
+// miss. Results are cached per target, so a rebuild after a slider move only needs to correct.
+const seedCache = new Map();
+function crossAt(x, y, z, tx) {
+  const h = 0.03;
+  for (let n = 0; n < 700; n++) {
+    toLocal(x, z, _l); field(_l[0], y, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
+    let sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
+    const mx = x + _w[0] / sp * h * 0.5, my = Math.max(0.02, y + _f[1] / sp * h * 0.5), mz = z + _w[1] / sp * h * 0.5;
+    toLocal(mx, mz, _l); field(_l[0], my, _l[1], 0, _f); toWorld(_f[0], _f[2], _w);
+    sp = Math.hypot(_w[0], _f[1], _w[1]) || 1;
+    const nx = x + _w[0] / sp * h, ny = Math.max(0.02, y + _f[1] / sp * h), nz = z + _w[1] / sp * h;
+    if (nx <= tx) { const u = (x - tx) / ((x - nx) || 1e-6); return [y + (ny - y) * u, z + (nz - z) * u]; }
+    x = nx; y = ny; z = nz;
+  }
+  return null;
+}
+function fitSeed(t, key) {
+  const p = targetPoint(t);
+  toWorld(p[0], p[2], _w);
+  const tx = _w[0], ty = p[1], tz = _w[1];
+  let s = seedCache.get(key);
+  const iters = s ? 4 : 18;
+  if (!s) s = [ty, tz];
+  const miss = (q) => { const hit = crossAt(9, q[0], q[1], tx); return hit ? [ty - hit[0], tz - hit[1]] : null; };
+  let e = miss(s), gain = 0.8;
+  for (let it = 0; it < iters && e; it++) {
+    const err = Math.hypot(e[0], e[1]);
+    if (err < 0.004) break;
+    // damped step: near the nose a small change flips air over or under the car, so back off
+    // whenever a step makes the miss worse
+    let stepped = false;
+    for (let k = 0; k < 5 && !stepped; k++) {
+      const q = [Math.min(2.5, Math.max(0.02, s[0] + gain * e[0])), s[1] + gain * e[1]];
+      const e2 = miss(q);
+      if (e2 && Math.hypot(e2[0], e2[1]) < err) { s = q; e = e2; stepped = true; gain = Math.min(1, gain * 1.3); }
+      else gain *= 0.4;
+    }
+    if (!stepped) break;
+  }
+  seedCache.set(key, s);
+  return [s[0], s[1], 9];
+}
+function buildStreamlines() {
+  const clean = S.style !== "dense", glow = S.style === "glow";
+  const pos = [], tang = [], side = [], arc = [], cps = [], fade = [], brk = [], wsc = [], idx = [];
+  let seeds = [];
+  if (clean) {
+    seeds = (glow ? CAR.glow : CAR.clean).map((t, i) => fitSeed(t, CAR_ID + S.style + i));
+  } else {
+    const ys = isSmall ? [0.08, 0.3, 0.52, 0.74, 0.94, 1.12, 1.3] : [0.06, 0.2, 0.34, 0.48, 0.62, 0.76, 0.9, 1.04, 1.16, 1.28, 1.42];
+    const zs = isSmall ? [-0.9, -0.45, 0, 0.45, 0.9] : [-1.15, -0.85, -0.55, -0.28, 0, 0.28, 0.55, 0.85, 1.15];
+    for (const y of ys) for (const z of zs) seeds.push([y, z]);
+  }
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  breakPoints.length = 0;
+  const tailX = XR * cosY;
+  for (const [y0, z0, x0] of seeds) {
+    const jy = clean ? 0 : (rnd() - 0.5) * 0.04, jz = clean ? 0 : (rnd() - 0.5) * 0.06;
+    let pts = tracePath(clean ? x0 : 5.5, y0 + jy, z0 + jz, clean ? 0.03 : 0.045, clean ? 560 : 320);
+    if (clean) pts = smoothPath(pts, glow ? 2 : 3, glow ? 0.04 : 0.05);
+    const n = pts.length / 5;
+    if (n < 3) continue;
+    const base = pos.length / 3;
+    const off = rnd() * 6;
+    let marked = false;
+    for (let i = 0; i < n; i++) {
+      const o = i * 5, a = Math.max(0, i - 1) * 5, b = Math.min(n - 1, i + 1) * 5;
+      const tx = pts[b] - pts[a], ty = pts[b + 1] - pts[a + 1], tz = pts[b + 2] - pts[a + 2];
+      const u = i / (n - 1);
+      const x = pts[o];
+      const behind = tailX - x;
+      let f, k = 0;
+      if (clean) {
+        f = Math.min(1, u / 0.04);
+        k = Math.min(1, Math.max(0, (behind + 0.1) / (glow ? 3.2 : 1.9)));     // break-up behind the tail
+        if (glow) f *= 1 - Math.max(0, (u - 0.86) / 0.14);
+        if (!marked && k > 0.08) { breakPoints.push([x, pts[o + 1], pts[o + 2]]); marked = true; }
+      } else {
+        f = Math.min(1, u / 0.06) * (1 - Math.max(0, (u - 0.8) / 0.2));
+        if (behind > 0) f *= Math.exp(-behind / 1.4);
+      }
+      for (const sd of [-1, 1]) {
+        pos.push(pts[o], pts[o + 1], pts[o + 2]);
+        tang.push(tx, ty, tz); side.push(sd); arc.push(pts[o + 4] + off); cps.push(pts[o + 3]); fade.push(f); brk.push(k);
+        wsc.push(Math.min(1, Math.max(0.3, pts[o + 1] / 0.08)));   // slimmer near the road, to fit under the floor
+      }
+      if (i < n - 1) {
+        const q = base + i * 2;
+        idx.push(q, q + 1, q + 2, q + 1, q + 3, q + 2);
+      }
+    }
+  }
+  ribGeo.setIndex(idx);
+  ribGeo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  ribGeo.setAttribute("tang", new THREE.Float32BufferAttribute(tang, 3));
+  ribGeo.setAttribute("side", new THREE.Float32BufferAttribute(side, 1));
+  ribGeo.setAttribute("arc", new THREE.Float32BufferAttribute(arc, 1));
+  ribGeo.setAttribute("cp", new THREE.Float32BufferAttribute(cps, 1));
+  ribGeo.setAttribute("fade", new THREE.Float32BufferAttribute(fade, 1));
+  ribGeo.setAttribute("brk", new THREE.Float32BufferAttribute(brk, 1));
+  ribGeo.setAttribute("wsc", new THREE.Float32BufferAttribute(wsc, 1));
+  applySmokeStyle();
+}
+
+/* ---------- Wake smoke (billowing puffs shed where the tubes break up, plus the tail, wheels and wing tips) ---------- */
+const SMOKE_N = isSmall ? 220 : 380;
+const smPos = new Float32Array(SMOKE_N * 3), smSize = new Float32Array(SMOKE_N), smAlpha = new Float32Array(SMOKE_N);
+const smRot = new Float32Array(SMOKE_N), smSpin = new Float32Array(SMOKE_N);
+const smAge = new Float32Array(SMOKE_N), smLife = new Float32Array(SMOKE_N);
+const smokeGeo = new THREE.BufferGeometry();
+smokeGeo.setAttribute("position", new THREE.BufferAttribute(smPos, 3));
+smokeGeo.setAttribute("size", new THREE.BufferAttribute(smSize, 1));
+smokeGeo.setAttribute("alpha", new THREE.BufferAttribute(smAlpha, 1));
+smokeGeo.setAttribute("rot", new THREE.BufferAttribute(smRot, 1));
+// Procedural puff texture: a cluster of soft blobs, so each sprite looks like a curl of smoke
+const puffTex = (() => {
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  let sd = 3; const r = () => ((sd = (sd * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 26; i++) {
+    const a = r() * Math.PI * 2, d = r() * 30, x = 64 + Math.cos(a) * d, y = 64 + Math.sin(a) * d, rad = 14 + r() * 26;
+    const gr = g.createRadialGradient(x, y, 0, x, y, rad);
+    gr.addColorStop(0, "rgba(255,255,255,0.22)"); gr.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+  }
+  const t = new THREE.CanvasTexture(c);
+  return t;
+})();
+const smokeMat = new THREE.ShaderMaterial({
+  uniforms: { uScale: { value: 400 }, uTex: { value: puffTex } },
+  vertexShader: `
+    uniform float uScale; attribute float size; attribute float alpha; attribute float rot; varying float vA; varying float vR;
+    void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vA = alpha; vR = rot;
+      gl_PointSize = min(size * uScale / -mv.z, 512.0); gl_Position = projectionMatrix * mv; }`,
+  fragmentShader: `
+    uniform sampler2D uTex; varying float vA; varying float vR;
+    void main(){
+      vec2 d = gl_PointCoord - 0.5; float c = cos(vR), s = sin(vR);
+      vec2 uv = vec2(c * d.x - s * d.y, s * d.x + c * d.y) + 0.5;
+      float a = texture2D(uTex, uv).a * vA * smoothstep(0.5, 0.3, length(d));
+      if (a < 0.004) discard;
+      gl_FragColor = vec4(vec3(0.84, 0.86, 0.88), a);
+    }`,
+  transparent: true, depthWrite: false,
+});
+const smoke = new THREE.Points(smokeGeo, smokeMat);
+smoke.frustumCulled = false; smoke.renderOrder = 4; scene.add(smoke);
+
+function spawnSmoke(i) {
+  const r = Math.random();
+  const o = i * 3;
+  if (S.style === "clean" && breakPoints.length && r < 0.6) {
+    // continue a smoke tube as it breaks up
+    const b = breakPoints[(Math.random() * breakPoints.length) | 0];
+    smPos[o] = b[0] - Math.random() * 0.4; smPos[o + 1] = b[1] + (Math.random() - 0.5) * 0.08; smPos[o + 2] = b[2] + (Math.random() - 0.5) * 0.08;
+  } else {
+    let x, y, z;
+    if (r < 0.75) { x = XR + 0.05; y = 0.12 + Math.random() * 0.75; z = (Math.random() * 2 - 1) * CAR.wake.w * 0.76; } // tail / diffuser exit
+    else if (r < 0.88) { x = WING.x - 0.15; y = WING.y + (Math.random() - 0.5) * 0.08; z = (Math.random() < 0.5 ? -1 : 1) * WING.span; } // wing-tip vortices
+    else { x = AXLE_R - 0.25 - Math.random() * 0.3; y = 0.1 + Math.random() * 0.35; z = (Math.random() < 0.5 ? -1 : 1) * (CAR.wheels.RL.c[2] + Math.random() * 0.2); } // rear wheels
+    toWorld(x, z, _w);
+    smPos[o] = _w[0]; smPos[o + 1] = y; smPos[o + 2] = _w[1];
+  }
+  smAge[i] = 0; smLife[i] = 1.4 + Math.random() * 1.8;
+  smRot[i] = Math.random() * Math.PI * 2; smSpin[i] = (Math.random() - 0.5) * 1.2;
+}
+for (let i = 0; i < SMOKE_N; i++) { spawnSmoke(i); smAge[i] = Math.random() * smLife[i]; }
+
+function stepSmoke(dt) {
+  const vis = (S.cSpeed / 300) * 7.5;
+  const on = Math.min(1, S.cSpeed / 60);
+  for (let i = 0; i < SMOKE_N; i++) {
+    smAge[i] += dt * (0.4 + 0.6 * on);
+    if (smAge[i] > smLife[i]) spawnSmoke(i);
+    const o = i * 3;
+    const x = smPos[o], y = smPos[o + 1], z = smPos[o + 2];
+    toLocal(x, z, _l); field(_l[0], y, _l[1], S.time, _f); toWorld(_f[0], _f[2], _w);
+    const u = smAge[i] / smLife[i];
+    // smoke slows, rises a little and billows outward as it ages
+    smPos[o] = x + _w[0] * vis * dt * (0.5 + 0.3 * (1 - u));
+    smPos[o + 1] = Math.max(0.05, y + (_f[1] * vis * 0.6 + 0.12) * dt);
+    smPos[o + 2] = z + (_w[1] * vis * 0.6 + Math.sign(z || 1) * 0.12) * dt;
+    smRot[i] += smSpin[i] * dt;
+    smSize[i] = 0.25 + 1.2 * Math.sqrt(u);
+    smAlpha[i] = 0.32 * Math.min(1, u * 6) * (1 - u) * (1 - u) * on;
+  }
+  smokeGeo.attributes.position.needsUpdate = true;
+  smokeGeo.attributes.size.needsUpdate = true;
+  smokeGeo.attributes.alpha.needsUpdate = true;
+  smokeGeo.attributes.rot.needsUpdate = true;
+}
+
+/* ---------- Vector field ---------- */
+const vecGeo = new THREE.BufferGeometry();
+const vecMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false });
+const vectors = new THREE.LineSegments(vecGeo, vecMat);
+vectors.frustumCulled = false; scene.add(vectors);
+
+function buildVectors() {
+  const pos = [], col = [];
+  const scale = 0.26 * (S.cSpeed / 250);
+  const push = (lx, y, lz) => {
+    if (carSD(lx, y, lz) < 0.03) return;
+    field(lx, y, lz, 0, _f);
+    toWorld(lx, lz, _w); const wx = _w[0], wz = _w[1];
+    toWorld(_f[0], _f[2], _l); const dx = _l[0] * scale, dy = _f[1] * scale, dz = _l[1] * scale;
+    const hv = cpToHeat(_f[3]);
+    emphasise(hv, heat(hv, _hc), 0.4);
+    const ex = wx + dx, ey = y + dy, ez = wz + dz;
+    pos.push(wx, y, wz, ex, ey, ez);
+    // arrow head: two short barbs
+    const L = Math.hypot(dx, dy, dz);
+    if (L > 0.01) {
+      const ux = dx / L, uy = dy / L, uz = dz / L;
+      let bx = -uy, by = ux, bz = 0; // perpendicular in xy
+      if (Math.abs(uz) > 0.7) { bx = 0; by = -uz; bz = uy; }
+      const hb = Math.min(0.06, L * 0.35);
+      pos.push(ex, ey, ez, ex - ux * hb + bx * hb * 0.5, ey - uy * hb + by * hb * 0.5, ez - uz * hb + bz * hb * 0.5);
+      pos.push(ex, ey, ez, ex - ux * hb - bx * hb * 0.5, ey - uy * hb - by * hb * 0.5, ez - uz * hb - bz * hb * 0.5);
+      for (let k = 0; k < 6; k++) col.push(_hc[0], _hc[1], _hc[2]);
+    } else {
+      col.push(_hc[0], _hc[1], _hc[2], _hc[0], _hc[1], _hc[2]);
+    }
+  };
+  const step = isSmall ? 0.38 : 0.3;
+  for (let x = -5; x <= 4.01; x += step) {
+    for (let y = 0.06; y <= 2.0; y += step * 0.8) push(x, y, 0);          // centre-line slice
+    for (let z = -2.1; z <= 2.11; z += step) push(x, 0.5, z);              // mid-height slice
+  }
+  vecGeo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  vecGeo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  vecGeo.computeBoundingSphere();
+}
+
+/* ---------- Force arrows ---------- */
+function makeArrow(color) {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, depthTest: false });
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 1, 12), mat);
+  const head = new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.22, 16), mat);
+  shaft.renderOrder = head.renderOrder = 10;
+  g.add(shaft, head); g.userData = { shaft, head };
+  scene.add(g);
+  return g;
+}
+// Arrow from `from` pointing along unit `dir`, total length L
+const _up = new THREE.Vector3(0, 1, 0), _q = new THREE.Quaternion();
+function placeArrow(a, from, dir, L) {
+  const { shaft, head } = a.userData;
+  const sl = Math.max(0.001, L - 0.22);
+  shaft.scale.set(1, sl, 1); shaft.position.set(0, sl / 2, 0);
+  head.position.set(0, sl + 0.11, 0);
+  a.position.copy(from);
+  _q.setFromUnitVectors(_up, dir); a.quaternion.copy(_q);
+  a.visible = L > 0.25;
+}
+const arrows = {
+  dfF: makeArrow(0x8dffc4), dfR: makeArrow(0x8dffc4),
+  drag: makeArrow(0xffc94a), side: makeArrow(0xc8a4ff),
+};
+const labelsEl = document.getElementById("labels");
+function mkLabel(color) { const d = document.createElement("div"); d.className = "flabel"; d.style.color = color; labelsEl.appendChild(d); return d; }
+const labels = { dfF: mkLabel("#8dffc4"), dfR: mkLabel("#8dffc4"), drag: mkLabel("#ffc94a"), side: mkLabel("#c8a4ff") };
+const labelAnchors = { dfF: new THREE.Vector3(), dfR: new THREE.Vector3(), drag: new THREE.Vector3(), side: new THREE.Vector3() };
+
+const _a = new THREE.Vector3(), _d = new THREE.Vector3();
+function updateArrows(A) {
+  const on = S.modes.forces && !S.cine;
+  for (const k in arrows) arrows[k].visible = on;
+  if (!on) { for (const k in labels) labels[k].style.display = "none"; return; }
+  const kN = (n) => (n / 1000).toFixed(1) + " kN";
+  // metres per newton: 1.5 m for 7 kN on the GT3 car, shorter for the cars with more downforce
+  const perN = 1.5 / 7000 * Math.min(1, 9800 / aero(300, 0, WING_REF_DEG).df);
+  // Downforce on each axle: arrow points down onto the body
+  const axles = [["dfF", AXLE_F, A.bal], ["dfR", AXLE_R, 1 - A.bal]];
+  for (const [k, x, share] of axles) {
+    const F = A.df * share, L = 0.25 + F * perN;
+    const s = bodySec(x); const topY = s.yc + s.hh + (k === "dfR" ? 0.05 : 0.02);
+    toWorld(x, 0, _w);
+    _a.set(_w[0], topY + L, _w[1]);
+    placeArrow(arrows[k], _a, _d.set(0, -1, 0), L);
+    labelAnchors[k].set(_w[0], topY + L + 0.08, _w[1]);
+    labels[k].textContent = (k === "dfF" ? "Front " : "Rear ") + kN(F);
+  }
+  // Drag acts along the flow (world -X), drawn from behind the car
+  {
+    const L = 0.25 + A.drag * perN * 1.6;
+    toWorld(XR - 0.15, 0, _w);
+    _a.set(_w[0], 0.65, _w[1]);
+    placeArrow(arrows.drag, _a, _d.set(-1, 0, 0), L);
+    labelAnchors.drag.set(_w[0] - L, 0.65, _w[1]);
+    labels.drag.textContent = "Drag " + kN(A.drag);
+  }
+  // Side force (appears with yaw)
+  {
+    const L = A.side * perN * 1.6;
+    const dir = S.cYaw >= 0 ? -1 : 1;
+    _a.set(0, 0.62, dir * 1.1);
+    placeArrow(arrows.side, _a, _d.set(0, 0, dir), L);
+    labelAnchors.side.set(0, 0.62, dir * (1.1 + L));
+    labels.side.textContent = "Side " + kN(A.side);
+    if (L <= 0.25) arrows.side.visible = false;
+  }
+}
+const _p = new THREE.Vector3();
+function placeLabels() {
+  if (!S.modes.forces) return;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  for (const k in labels) {
+    const el = labels[k];
+    if (!arrows[k].visible) { el.style.display = "none"; continue; }
+    _p.copy(labelAnchors[k]).project(camera);
+    if (_p.z > 1) { el.style.display = "none"; continue; }
+    el.style.display = "block";
+    el.style.left = ((_p.x + 1) / 2 * w) + "px";
+    el.style.top = ((1 - _p.y) / 2 * h) + "px";
+  }
+}
+
+/* =========================================================
+   UI wiring
+   ========================================================= */
+const $ = (id) => document.getElementById(id);
+const fmt = (n, d = 0) => n.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+function setFill(input) {
+  const p = (input.value - input.min) / (input.max - input.min) * 100;
+  input.style.setProperty("--fill", p + "%");
+}
+for (const id of ["speed", "yaw", "wing", "heading"]) setFill($(id));
+
+$("speed").addEventListener("input", (e) => { S.speed = +e.target.value; setFill(e.target); $("speedOut").innerHTML = S.speed + "<small>km/h</small>"; });
+$("yaw").addEventListener("input", (e) => { S.yaw = +e.target.value; setFill(e.target); $("yawOut").innerHTML = S.yaw.toFixed(1) + "<small>°</small>"; });
+$("wing").addEventListener("input", (e) => { S.wing = +e.target.value; setFill(e.target); $("wingOut").innerHTML = S.wing + "<small>°</small>"; });
+
+// View heading slider <-> orbit azimuth
+let headingDragging = false;
+function currentAzimuth() {
+  const dx = camera.position.x - controls.target.x, dz = camera.position.z - controls.target.z;
+  return ((Math.atan2(dx, dz) * 180 / Math.PI) + 360) % 360;
+}
+function setAzimuth(deg) {
+  const off = camera.position.clone().sub(controls.target);
+  const sph = new THREE.Spherical().setFromVector3(off);
+  sph.theta = deg * DEG;
+  off.setFromSpherical(sph); camera.position.copy(controls.target).add(off);
+}
+const headingEl = $("heading");
+headingEl.addEventListener("input", (e) => {
+  headingDragging = true; tween = null;
+  setAzimuth(+e.target.value); setFill(e.target);
+  $("headOut").innerHTML = e.target.value + "<small>°</small>";
+});
+headingEl.addEventListener("change", () => { headingDragging = false; });
+function syncHeading() {
+  if (headingDragging) return;
+  const a = Math.round(currentAzimuth());
+  if (+headingEl.value !== a) { headingEl.value = a; setFill(headingEl); $("headOut").innerHTML = a + "<small>°</small>"; }
+}
+
+// Visualisation modes
+document.querySelectorAll(".mode").forEach((b) => b.addEventListener("click", () => {
+  const m = b.dataset.mode; S.modes[m] = !S.modes[m];
+  b.setAttribute("aria-pressed", S.modes[m]);
+  if (m === "streamlines" && S.modes[m]) dirty.stream = true;
+  if (m === "pressure") needPaint = true;
+  if (m === "vectors" && S.modes[m]) dirty.vec = true;
+  refreshVisibility();
+}));
+function refreshVisibility() {
+  streaks.visible = S.modes.particles;
+  streamlines.visible = S.modes.streamlines;
+  smoke.visible = S.modes.smoke;
+  vectors.visible = S.modes.vectors;
+  const anyFlow = S.modes.pressure || S.tint || S.modes.particles || S.modes.vectors;
+  $("legend").style.visibility = anyFlow ? "visible" : "hidden";
+}
+
+document.querySelectorAll("[data-style]").forEach((b) => b.addEventListener("click", () => {
+  S.style = b.dataset.style;
+  document.querySelectorAll("[data-style]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  dirty.stream = true; lastHeavy = 0;
+}));
+document.querySelectorAll("[data-tint]").forEach((b) => b.addEventListener("click", () => {
+  S.tint = +b.dataset.tint;
+  document.querySelectorAll("[data-tint]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  refreshVisibility();
+}));
+
+// Camera presets
+const VIEWS = {
+  three: { p: [5.4, 1.25, 4.6], t: [0, 0.5, 0] },
+  cine: { p: [4.7, 0.85, 3.9], t: [-0.2, 0.55, 0] },
+  side:  { p: [0, 1.1, 8.4], t: [0, 0.6, 0] },
+  rear:  { p: [-6.4, 2.4, 4.2], t: [-0.6, 0.7, 0] },
+  top:   { p: [0.01, 12, 0.8], t: [-0.3, 0.5, 0] },
+  under: { p: [-4.6, 0.25, 3.6], t: [-0.8, 0.35, 0] },
+};
+let tween = null;
+function goView(name) {
+  const v = typeof name === "string" ? VIEWS[name] : name; if (!v) return;
+  const to = { p: new THREE.Vector3(...v.p), t: new THREE.Vector3(...v.t) };
+  if (camera.aspect < 0.9) to.p.sub(to.t).multiplyScalar(1.12).add(to.t);   // portrait screens need more distance
+  if (reduceMotion) { camera.position.copy(to.p); controls.target.copy(to.t); return; }
+  tween = { from: { p: camera.position.clone(), t: controls.target.clone() }, to, t0: performance.now(), dur: 1100 };
+}
+document.querySelectorAll("[data-view]").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("[data-view]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+  goView(b.dataset.view);
+}));
+$("cineBtn").addEventListener("click", (e) => {
+  S.cine = !S.cine;
+  e.currentTarget.setAttribute("aria-pressed", S.cine);
+  stageEl.classList.toggle("cine", S.cine);
+  if (S.cine) {
+    if (S.style !== "glow") document.querySelector('[data-style="glow"]').click();
+    goView("cine");
+  }
+});
+$("spinBtn").addEventListener("click", (e) => {
+  controls.autoRotate = !controls.autoRotate;
+  e.currentTarget.setAttribute("aria-pressed", controls.autoRotate);
+});
+controls.addEventListener("start", () => { tween = null; $("hint").style.opacity = 0; document.querySelectorAll("[data-view]").forEach((x) => x.setAttribute("aria-pressed", false)); });
+
+// Feature inspector (rebuilt for each car)
+let highlight = null;
+const featuresEl = $("features");
+function buildFeatures() {
+  featuresEl.innerHTML = "";
+  highlight = null;
+  for (const f of CAR.features) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "feat"; b.dataset.feat = f.key; b.setAttribute("aria-expanded", "false");
+    b.innerHTML = "<b></b><span class=\"loc\"></span><p></p>";
+    b.children[0].textContent = f.name; b.children[1].textContent = f.loc; b.children[2].textContent = f.text;
+    b.addEventListener("click", () => {
+      const open = b.getAttribute("aria-expanded") !== "true";
+      featuresEl.querySelectorAll(".feat").forEach((x) => x.setAttribute("aria-expanded", "false"));
+      if (open) {
+        b.setAttribute("aria-expanded", "true");
+        goView(f.view);
+        highlight = { key: f.key, box: f.box, t0: performance.now() };
+        if (window.matchMedia("(max-width: 880px)").matches) stageEl.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
+      } else highlight = null;
+    });
+    featuresEl.appendChild(b);
+  }
+}
+function updateHighlight(now) {
+  if (model) {
+    const b = highlight && highlight.box;
+    HEATU.uHiAmt.value = b ? 0.35 + 0.35 * Math.sin((now - highlight.t0) / 180) : 0;
+    if (b) { HEATU.uHiMin.value.set(...b[0]); HEATU.uHiMax.value.set(...b[1]); }
+    return;
+  }
+  for (const k in featMats) {
+    const on = highlight && highlight.key === k;
+    const pulse = on ? 0.35 + 0.35 * Math.sin((now - highlight.t0) / 180) : 0;
+    for (const m of featMats[k]) { m.emissive.setRGB(pulse, pulse * 0.55, pulse * 0.1); }
+  }
+}
+
+/* ---------- Numbers + chart ---------- */
+function updateNumbers(A) {
+  $("hudDf").innerHTML = fmt(A.df / G) + "<small>kg</small>";
+  $("hudDrag").innerHTML = fmt(A.drag) + "<small>N</small>";
+  $("hudCoef").textContent = "−" + A.CL.toFixed(2) + " / " + A.CD.toFixed(3);
+  $("nDf").innerHTML = fmt(A.df) + "<small>N</small>";
+  $("nDrag").innerHTML = fmt(A.drag) + "<small>N</small>";
+  $("nCl").textContent = "−" + A.CL.toFixed(2);
+  $("nCd").textContent = A.CD.toFixed(3);
+  $("nLd").textContent = A.ld.toFixed(2);
+  $("nPow").innerHTML = fmt(A.power) + "<small>kW</small>";
+  $("nSide").innerHTML = fmt(A.side) + "<small>N</small>";
+  $("nQ").innerHTML = fmt(A.q) + "<small>Pa</small>";
+  $("nBal").textContent = (A.bal * 100).toFixed(1) + "% front";
+  $("balFill").style.width = (A.bal * 100) + "%";
+  $("runTag").innerHTML = "RUN 01 · <b>" + Math.round(S.cSpeed) + " km/h</b> · yaw <b>" + S.cYaw.toFixed(1) + "°</b> · wing <b>" + Math.round(S.cWing) + "°</b><br>ρ 1.225 kg/m³ · A " + CAR.aero.A.toFixed(2) + " m²";
+  const qn = A.q;
+  $("legLo").textContent = "−" + (1.1 * qn / 1000).toFixed(1) + " kPa";
+  $("legHi").textContent = "+" + (0.8 * qn / 1000).toFixed(1) + " kPa";
+}
+
+const chart = $("chart"), cx = chart.getContext("2d");
+function drawChart() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = chart.clientWidth, H = chart.clientHeight;
+  if (!W) return;
+  if (chart.width !== Math.round(W * dpr)) { chart.width = Math.round(W * dpr); chart.height = Math.round(H * dpr); }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.clearRect(0, 0, W, H);
+  const css = getComputedStyle(document.documentElement);
+  const cLine = css.getPropertyValue("--line").trim(), cFaint = css.getPropertyValue("--faint").trim();
+  const cDf = css.getPropertyValue("--df").trim(), cDrag = css.getPropertyValue("--drag").trim(), cFg = css.getPropertyValue("--fg").trim();
+  const pl = 30, pr = 8, pt = 8, pb = 20;
+  const X = (v) => pl + (v / 300) * (W - pl - pr);
+  // scale to this car: four gridlines in whole kN, above the most downforce the wing allows
+  const YSTEP = Math.ceil(aero(300, 0, 12).df / 4000) * 1000, YMAX = YSTEP * 4;
+  const Y = (n) => pt + (1 - n / YMAX) * (H - pt - pb);
+  cx.font = "10px 'IBM Plex Mono', monospace"; cx.fillStyle = cFaint; cx.strokeStyle = cLine; cx.lineWidth = 1;
+  cx.textAlign = "right"; cx.textBaseline = "middle";
+  for (const n of [0, YSTEP, YSTEP * 2, YSTEP * 3, YMAX]) {
+    cx.beginPath(); cx.moveTo(pl, Y(n) + .5); cx.lineTo(W - pr, Y(n) + .5); cx.stroke();
+    cx.fillText(n / 1000, pl - 6, Y(n));
+  }
+  cx.textAlign = "center"; cx.textBaseline = "top";
+  for (const v of [0, 100, 200, 300]) cx.fillText(v, X(v), H - pb + 6);
+  const curve = (key, color, dash) => {
+    cx.beginPath(); cx.setLineDash(dash); cx.strokeStyle = color; cx.lineWidth = 2;
+    for (let v = 0; v <= 300; v += 5) { const n = aero(v, S.cYaw, S.cWing)[key]; v ? cx.lineTo(X(v), Y(n)) : cx.moveTo(X(v), Y(n)); }
+    cx.stroke(); cx.setLineDash([]);
+  };
+  // area under downforce
+  cx.beginPath(); cx.moveTo(X(0), Y(0));
+  for (let v = 0; v <= 300; v += 5) cx.lineTo(X(v), Y(aero(v, S.cYaw, S.cWing).df));
+  cx.lineTo(X(300), Y(0)); cx.closePath();
+  cx.fillStyle = "rgba(141,255,196,0.08)"; cx.fill();
+  curve("df", cDf, []);
+  curve("drag", cDrag, [4, 3]);
+  const A = aero(S.cSpeed, S.cYaw, S.cWing);
+  cx.strokeStyle = cFaint; cx.setLineDash([2, 3]); cx.beginPath(); cx.moveTo(X(S.cSpeed) + .5, pt); cx.lineTo(X(S.cSpeed) + .5, H - pb); cx.stroke(); cx.setLineDash([]);
+  for (const [n, c] of [[A.df, cDf], [A.drag, cDrag]]) {
+    cx.beginPath(); cx.arc(X(S.cSpeed), Y(n), 4, 0, Math.PI * 2); cx.fillStyle = c; cx.fill();
+    cx.lineWidth = 2; cx.strokeStyle = "#10151b"; cx.stroke();
+  }
+  cx.fillStyle = cFg; cx.textAlign = "left"; cx.textBaseline = "bottom";
+}
+
+/* =========================================================
+   Loop
+   ========================================================= */
+const dirty = { surface: true, stream: true, vec: true };
+let lastHeavy = 0, lastKey = "", lastCpKey = "", lastCp = 0, lastSpeedKey = -1, needPaint = true, lastPaint = 0;
+
+function resize() {
+  const w = stageEl.clientWidth, h = stageEl.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.fov = w / h < 0.9 ? 50 : 36;
+  camera.updateProjectionMatrix();
+  smokeMat.uniforms.uScale.value = h / (2 * Math.tan(camera.fov * DEG / 2));
+  drawChart();
+}
+new ResizeObserver(resize).observe(stageEl);
+resize();
+
+setYaw(0);
+if (BG_MODE) {
+  // background: no arrows or labels, a slow cinematic orbit, no mouse/touch capture
+  S.modes.forces = false;
+  S.cine = true;
+  controls.enabled = false;
+  controls.autoRotate = !reduceMotion;
+  controls.autoRotateSpeed = 0.45;
+  const v = VIEWS.cine;
+  camera.position.set(...v.p); controls.target.set(...v.t);
+}
+refreshVisibility();
+
+/* ---------- Car switcher ---------- */
+function applyCarText() {
+  $("carTitle").innerHTML = CAR.title;
+  $("wingNote").textContent = CAR.wingNote;
+  $("footModel").textContent = CAR.footModel;
+  $("footCar").textContent = CAR.footCar;
+  document.documentElement.style.setProperty("--accent", CAR.accent);
+  document.querySelectorAll(".car-btn").forEach((b) => b.setAttribute("aria-pressed", b.dataset.car === CAR_ID));
+  buildFeatures();
+}
+// The McLaren's distance field ships with the page (car-sdf.js); the others load on demand
+function ensureSDF(id) {
+  if (id === "mclaren" || (window.CAR_SDFS && window.CAR_SDFS[id])) return Promise.resolve();
+  return loadScript(assetSrc(id, "sdf") || CARS[id].sdf);
+}
+function setCar(id, first) {
+  if (!CARS[id] || (!first && id === CAR_ID)) return;
+  CAR_ID = id; CAR = CARS[id];
+  applyCarText();
+  if (first && id === "mclaren") { loadModel(); return; }
+  disposeModel();
+  proc.visible = false;
+  seedCache.clear();
+  lastKey = ""; drawChart();
+  loadingEl.textContent = "Loading car model…"; loadingEl.style.opacity = 1;
+  ensureSDF(id).then(() => {
+    if (id !== CAR_ID) return;
+    SDF_GRID = decodeSDF(id === "mclaren" ? window.CAR_SDF : window.CAR_SDFS[id]);
+    useMeasuredOutline();
+    dirty.surface = dirty.stream = dirty.vec = true; lastCpKey = "";
+    loadModel();
+  }, () => { if (id === CAR_ID) { loadingEl.textContent = "Couldn't load this car's airflow data."; } });
+}
+document.querySelectorAll(".car-btn").forEach((b) => b.addEventListener("click", () => setCar(b.dataset.car)));
+// #car=redbull (or ?car=) picks the car to open with, also in background mode
+const carParam = /(?:^|[?&#])car=(\w+)/.exec(location.search + location.hash);
+setCar(carParam && CARS[carParam[1]] ? carParam[1] : "mclaren", true);
+if (camera.aspect < 0.9) camera.position.sub(controls.target).multiplyScalar(1.12).add(controls.target);
+
+let prev = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - prev) / 1000); prev = now;
+  S.time += dt;
+
+  // Smoothly approach slider targets
+  const k = reduceMotion ? 1 : 1 - Math.exp(-dt * 6);
+  S.cSpeed += (S.speed - S.cSpeed) * k; if (Math.abs(S.speed - S.cSpeed) < 0.05) S.cSpeed = S.speed;
+  S.cYaw += (S.yaw - S.cYaw) * k; if (Math.abs(S.yaw - S.cYaw) < 0.005) S.cYaw = S.yaw;
+  S.cWing += (S.wing - S.cWing) * k; if (Math.abs(S.wing - S.cWing) < 0.01) S.cWing = S.wing;
+  const pTarget = S.modes.pressure ? 1 : 0;
+  const pPrev = S.pBlend;
+  S.pBlend += (pTarget - S.pBlend) * (reduceMotion ? 1 : 1 - Math.exp(-dt * 5));
+  if (Math.abs(pTarget - S.pBlend) < 0.003) S.pBlend = pTarget;
+
+  setYaw(S.cYaw * DEG);
+  wingPivot.rotation.z = -(S.cWing - 2) * DEG * 1.2;
+  // more angle lifts the trailing edge (front of the car is +x)
+  if (modelWingReady) modelWingPivot.quaternion.setFromAxisAngle(wingAxis, -(S.cWing - WING_REF_DEG) * DEG * WING_VIS_GAIN);
+  const A = aero(S.cSpeed, S.cYaw, S.cWing);
+  flow.load = A.CL / CAR.aero.CL;
+
+  car.userData.shadow.rotation.z = S.cYaw * DEG;
+
+  // Numbers follow every change
+  const key = S.cYaw.toFixed(2) + "|" + S.cWing.toFixed(2) + "|" + Math.round(S.cSpeed);
+  if (key !== lastKey) { lastKey = key; dirty.vec = true; updateNumbers(A); drawChart(); }
+  // Surface pressure depends on yaw + wing; its colours also on speed. Throttled while sliding.
+  const cpKey = S.cYaw.toFixed(2) + "|" + S.cWing.toFixed(2);
+  if (cpKey !== lastCpKey && now - lastCp > 120) {
+    lastCpKey = cpKey; lastCp = now; updateSurfaceCp(); needPaint = true; dirty.stream = true;
+  }
+  const spKey = Math.round(S.cSpeed / 2);
+  if (spKey !== lastSpeedKey) { lastSpeedKey = spKey; needPaint = true; }
+  if (needPaint && now - lastPaint > 80) { paintSurfaces(); needPaint = false; lastPaint = now; }
+  else if (pPrev !== S.pBlend) { if (model) setHeatBlend(S.pBlend); else paintSurfaces(); }
+  if (now - lastHeavy > 220) {
+    if (dirty.stream && S.modes.streamlines) { buildStreamlines(); dirty.stream = false; lastHeavy = now; }
+    if (dirty.vec && S.modes.vectors) { buildVectors(); dirty.vec = false; lastHeavy = now; }
+  }
+  if (model) { car.updateMatrixWorld(); HEATU.uCarInv.value.copy(car.matrixWorld).invert(); }
+
+  if (S.modes.particles) stepParticles(dt);
+  if (S.modes.smoke) stepSmoke(dt);
+  RIB_U.uTime.value = S.time;
+  RIB_U.uSpeed.value = 0.1 + 0.9 * (S.cSpeed / 300);
+  RIB_U.uAmp.value = 0.3 + 0.7 * Math.min(1, S.cSpeed / 80);
+  RIB_U.uTint.value += (S.tint - RIB_U.uTint.value) * (reduceMotion ? 1 : 1 - Math.exp(-dt * 5));
+  RIB_U.uSpeedScale.value = S.cSpeed * S.cSpeed / (300 * 300);
+
+  // Rolling road + wheels
+  const vis = (S.cSpeed / 300) * 7.5;
+  // The belt and the tyres share one speed, as on a real rolling road: the tread moves exactly
+  // with the belt under it, no slip. The scene runs in slow motion (true 250 km/h is ~69 m/s);
+  // ROAD_VIS_SPEED is the on-screen belt speed at 300 km/h.
+  const vRoad = (S.cSpeed / 300) * ROAD_VIS_SPEED;
+  roadTex.offset.y -= vRoad * dt / (14 / 6);   // one texture tile spans 14 / 6 m of belt
+  road.rotation.z = Math.PI / 2 + S.cYaw * DEG;
+  for (const w of wheelSpin) w.g.rotation.z -= w.dir * vis * dt / 0.345;
+  // Roll the real wheels with the belt: omega = belt speed / tyre radius, so the tread never
+  // slips against the road (~4.7 turns a second at 250 km/h on screen). Forward rolling is
+  // negative rotation about the left-pointing axle. A light blur fades in near top speed.
+  for (const w of wheelHubs) {
+    const omega = vRoad / w.r;
+    w.angle = (w.angle - omega * dt) % (Math.PI * 2);
+    w.hub.quaternion.setFromAxisAngle(w.axis, w.angle);
+    const blur = Math.min(1, Math.max(0, (omega - 26) / 30)) * 0.6;
+    const sweep = Math.min(omega * Math.max(dt, 1 / 60), 2.2);
+    w.ghosts.forEach((g, i) => {
+      const k = (i + 1) / (w.ghosts.length + 1);
+      g.visible = blur > 0.01;
+      if (!g.visible) return;
+      g.quaternion.setFromAxisAngle(w.axis, w.angle + sweep * k);
+      const op = blur * 0.55 * (1 - k * 0.6);
+      for (const c of g.children) c.material.opacity = op;
+    });
+  }
+
+  updateArrows(A);
+  updateHighlight(now);
+
+  if (tween) {
+    const u = Math.min(1, (now - tween.t0) / tween.dur);
+    const e = u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+    camera.position.lerpVectors(tween.from.p, tween.to.p, e);
+    controls.target.lerpVectors(tween.from.t, tween.to.t, e);
+    if (u >= 1) tween = null;
+  }
+  controls.update();
+  syncHeading();
+  renderer.render(scene, camera);
+  placeLabels();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
